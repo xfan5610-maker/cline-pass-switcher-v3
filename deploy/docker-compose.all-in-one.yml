@@ -1,0 +1,39 @@
+# All-in-one 部署：应用 + Caddy 自动 HTTPS
+# 用法：
+#   1. mkdir -p data && cp config.example.json data/config.json  （填入你的账号 key）
+#   2. 有域名：CPASS_DOMAIN=pass.example.com docker compose -f deploy/docker-compose.all-in-one.yml up -d --build
+#      （把域名 A 记录指向服务器 IP，Caddy 自动向 Let's Encrypt 申请受信证书）
+#   3. 没有域名（仅 IP）：直接 docker compose -f deploy/docker-compose.all-in-one.yml up -d --build
+#      （Caddy 使用自签证书，浏览器需信任一次；访问 https://服务器IP）
+services:
+  app:
+    build: ..
+    container_name: cline-pass-console
+    restart: unless-stopped
+    environment:
+      - DATA_DIR=/data
+      - BIND_HOST=0.0.0.0
+    volumes:
+      - ../data:/data
+    expose:
+      - "3123"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: cline-pass-caddy
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CPASS_DOMAIN=${CPASS_DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

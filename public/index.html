@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cline Pass 上游控制台</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #171a21; --card2: #1d212b; --border: #2a2f3c;
+    --text: #e6e9f0; --dim: #8b93a5; --accent: #4f8cff; --green: #34c77b; --orange: #f0a53c; --red: #e5534b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, -apple-system, sans-serif; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 16px; }
+  .banner { background: var(--card2); border: 1px solid var(--border); border-left: 3px solid var(--orange); border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.7; color: var(--dim); margin-bottom: 18px; }
+  .banner b { color: var(--text); }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
+  .chip { background: var(--card2); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; font-family: Consolas, monospace; font-size: 13px; cursor: pointer; }
+  .chip:hover { border-color: var(--accent); }
+  button { background: var(--accent); border: none; color: #fff; border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.ghost:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+  .card h2 { font-size: 15px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid #22262f; vertical-align: middle; }
+  tr:hover td { background: #1a1e27; }
+  .mono { font-family: Consolas, monospace; font-size: 12.5px; }
+  .dim { color: var(--dim); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #243447; color: #9cc3ff; }
+  .badge.green { background: #1d3a2a; color: var(--green); }
+  .badge.orange { background: #3d2f1a; color: var(--orange); }
+  select, input[type=number] { background: var(--card2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; max-width: 200px; }
+  input[type=number] { width: 64px; }
+  .row-actions { display: flex; gap: 6px; }
+  .result { margin-top: 12px; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.8; display: none; white-space: pre-wrap; word-break: break-all; }
+  .kvs { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; }
+  .kvs div { font-size: 12.5px; color: var(--dim); }
+  .kvs b { color: var(--text); font-weight: 600; }
+  details summary { cursor: pointer; color: var(--dim); font-size: 13px; }
+  .history td { color: var(--dim); }
+  .spin { display: inline-block; animation: r 1s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .empty { color: var(--dim); font-size: 13px; padding: 14px 10px; }
+  .match { color: var(--green); } .mismatch { color: var(--orange); }
+</style>
+</head>
+<body>
+  <div id="loginOverlay" style="display:none; position:fixed; inset:0; background:rgba(8,10,14,.85); z-index:50; align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:28px; width:360px;">
+      <h2 style="font-size:16px; margin-bottom:6px;">Cline Pass 上游控制台</h2>
+      <p class="dim" style="font-size:13px; margin-bottom:14px;">此部署已启用代理密钥保护，请输入密钥访问控制台。</p>
+      <input id="loginKey" type="password" placeholder="代理密钥" style="width:100%; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:9px 10px; font-size:14px;">
+      <div id="loginErr" style="color:var(--red); font-size:12px; margin-top:6px;"></div>
+      <button style="width:100%; margin-top:12px;" onclick="tryLogin()">进入控制台</button>
+    </div>
+  </div>
+
+  <h1>Cline Pass 上游控制台</h1>
+  <div class="sub">本地代理 + 观测面板 —— 枚举订阅模型背后的上游，记录每次请求实际命中的上游，支持精确钉住 / 优先回退 / 成本·首字·吞吐排序</div>
+
+  <div id="noKeyBanner" class="banner" style="display:none; border-left-color: var(--red);">
+    <b>尚未配置上游 API Key：</b>在下方「账号管理」添加你的 Cline Pass 账号（sk_ 开头的 key）并保存即可开始使用；也可通过 config.json 的 accounts 或环境变量 CLINE_PASS_KEY 提供。
+  </div>
+
+  <div class="banner">
+    <b>实测结论（决定了本工具的工作方式）：</b><br>
+    ① <b>上游可枚举、可观测</b>：订阅模型响应元数据里带背后真正的模型 ID、可用上游列表与本次实际命中的上游；
+    「探测」按钮还会用一次零 token 消耗的假上游请求让网关报出精确的可用上游清单（直连→OpenRouter，规划器→Vercel AI Gateway）。<br>
+    ② <b>两类管道都能精确钉住上游</b>（已实测 <code class="mono">finalProvider</code> 随之改变）：
+    直连管道（OpenRouter）用顶层 <code class="mono">provider.only / order</code>；
+    规划器管道（Vercel AI Gateway）必须用 <code class="mono">providerOptions.gateway.only / order</code>——
+    Cline 会丢弃顶层 <code class="mono">provider</code> 简写里的 <code class="mono">only/order</code>，但会透传 <code class="mono">providerOptions.gateway</code>。
+    两类管道还都支持 <code class="mono">sort</code>（最低成本 / 最快首字 / 最高吞吐）。<br>
+    ③ <b>目录模型 :free 变体</b>：属于直连管道，可精确钉住。
+  </div>
+
+  <div class="toolbar">
+    <span class="chip" id="proxyBase" title="点击复制：把任意 OpenAI 兼容客户端的 Base URL 指向这里"></span>
+    <button class="ghost" onclick="loadAll()">↻ 刷新</button>
+    <button class="ghost" onclick="probeAll()" id="probeAllBtn">批量探测订阅模型</button>
+    <span class="dim" style="font-size:12px" id="status"></span>
+  </div>
+
+  <div class="card">
+    <h2>账号管理（Cline Pass 账号池）</h2>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+      <label class="dim" style="font-size:13px">模式：</label>
+      <select id="accMode">
+        <option value="single">单账号（手动指定）</option>
+        <option value="roundrobin">账号池轮询</option>
+      </select>
+      <label class="dim" style="font-size:12px"><input type="checkbox" id="accShowKeys" onchange="toggleKeyVis()"> 显示密钥</label>
+      <button class="ghost" onclick="addAccountRow()">＋ 添加账号</button>
+      <button onclick="saveAccounts()">保存账号配置</button>
+      <span class="dim" style="font-size:12px" id="accMsg"></span>
+    </div>
+    <table>
+      <thead><tr><th>使用</th><th>名称</th><th>API Key</th><th>启用</th><th>请求数</th><th>最近使用</th><th>操作</th></tr></thead>
+      <tbody id="accBody"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>访问与安全（下游密钥）</h2>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <label class="dim" style="font-size:13px">代理密钥：</label>
+      <input id="secProxyKey" type="password" placeholder="空 = 关闭鉴权" style="width:340px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 10px; font-family:Consolas, monospace; font-size:13px">
+      <label class="dim" style="font-size:12px"><input type="checkbox" id="secShow" onchange="$('#secProxyKey').type=this.checked?'text':'password'"> 显示</label>
+      <span id="secBadge" class="badge"></span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; margin-top:8px; flex-wrap:wrap;">
+      <label class="dim" style="font-size:13px">公网代理地址：</label>
+      <input id="secPublicBase" placeholder="如 https://cline.xxx.sslip.io（本地留空）" style="width:340px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 10px; font-family:Consolas, monospace; font-size:13px">
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; margin-top:12px; flex-wrap:wrap;">
+      <button onclick="saveSecurity()">保存访问设置</button>
+      <span class="dim" style="font-size:12px">修改密钥后，客户端需改用新密钥；控制台会自动更新本机保存的密钥，不会被锁在外面。</span>
+      <span class="dim" style="font-size:12px" id="secMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>订阅模型（cline-pass/*）</h2>
+    <table>
+      <thead><tr>
+        <th>模型</th><th>背后模型</th><th>上游数</th><th>最近实际上游</th><th>上游切换 / 模式 / 排序</th><th>重试博弈</th><th>操作</th>
+      </tr></thead>
+      <tbody id="subBody"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>测试台（发一条真实请求，验证目标上游是否被网关采纳）</h2>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <select id="testModel" style="min-width:240px"></select>
+      <select id="testUpstream" style="min-width:200px"><option value="">自动（不指定上游）</option></select>
+      <button onclick="runTest()" id="testBtn">发送测试</button>
+      <span class="dim" style="font-size:12px">使用 max_tokens=256 的小请求，消耗极小</span>
+    </div>
+    <div class="result" id="testResult"></div>
+  </div>
+
+  <div class="card">
+    <h2>请求历史（最近 100 条，经代理的请求自动记录）</h2>
+    <table>
+      <thead><tr><th>时间</th><th>模型</th><th>账号</th><th>实际上游</th><th>背后模型</th><th>耗时</th><th>方式</th><th>尝试序列</th></tr></thead>
+      <tbody id="histBody"><tr><td colspan="7" class="empty">暂无记录</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>完整模型目录（Cline 公开目录，含 :free 可钉住模型）</h2>
+    <details>
+      <summary id="catSummary">展开</summary>
+      <input id="catFilter" placeholder="输入过滤… 如 free / glm / anthropic" style="margin:10px 0; width:300px; display:block">
+      <table><tbody id="catBody"></tbody></table>
+    </details>
+  </div>
+
+<script>
+let DATA = null;
+let AUTH_KEY = localStorage.getItem('cps_key') || '';
+const $ = (s) => document.querySelector(s);
+const fmt = (ts) => new Date(ts).toLocaleTimeString();
+
+async function api(path, body) {
+  const headers = body ? { 'Content-Type': 'application/json' } : {};
+  if (AUTH_KEY) headers['X-Admin-Key'] = AUTH_KEY;
+  const res = await fetch(path, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers });
+  if (res.status === 401) { showLogin(); throw new Error('unauthorized'); }
+  return res.json();
+}
+
+function showLogin() { $('#loginOverlay').style.display = 'flex'; setTimeout(() => $('#loginKey').focus(), 50); }
+async function tryLogin() {
+  const k = $('#loginKey').value.trim();
+  if (!k) return;
+  const res = await fetch('/api/models', { headers: { 'X-Admin-Key': k } });
+  if (res.ok) {
+    AUTH_KEY = k; localStorage.setItem('cps_key', k);
+    $('#loginOverlay').style.display = 'none'; $('#loginErr').textContent = '';
+    loadAll();
+  } else {
+    $('#loginErr').textContent = '密钥错误，请重试';
+  }
+}
+
+const ST_TAG = { ok: '✔可用', limited: '⏳限流', bad: '✘不可钉', auth: '🔑key错' };
+function upstreamOptions(meta, selected) {
+  let html = '<option value="">自动（不指定上游）</option>';
+  const stMap = (meta && meta.upstreamStatus) || {};
+  const detail = (meta && meta.upstreamDetail) || {};
+  const rank = { ok: 0, limited: 1, unknown: 2, auth: 3, bad: 4 };
+  const ups = [...((meta && meta.upstreams) || [])].sort((a, b) => (rank[stMap[a]?.status] ?? 2) - (rank[stMap[b]?.status] ?? 2));
+  for (const u of ups) {
+    const d = detail[u];
+    const st = stMap[u]?.status;
+    const tag = st && ST_TAG[st] ? ' · ' + ST_TAG[st] : '';
+    const label = d ? `${u}（${d.name}${d.endpoints > 1 ? ' ×' + d.endpoints : ''}${tag}）` : `${u}${tag}`;
+    html += `<option value="${u}" ${u === selected ? 'selected' : ''}>${label}</option>`;
+  }
+  return html;
+}
+
+function render() {
+  $('#proxyBase').textContent = '代理地址：' + DATA.proxyBase + '（点击复制）';
+  const rows = DATA.subscription.map((s) => {
+    const m = s.meta;
+    const ups = (m?.upstreams?.length ?? null);
+    const last = m?.lastProvider ? `<span class="badge">${m.lastProvider}</span>` : '<span class="dim">未探测</span>';
+    const canon = m?.canonicalSlug ? `<span class="mono dim">${m.canonicalSlug}</span>` : '<span class="dim">—</span>';
+    const tier0 = m?.tier0?.length ? `<div class="dim" style="font-size:11px">tier-0: ${m.tier0.join(', ')}</div>` : '';
+    const pipe = m?.pinnable ? `<span class="badge green">可精确钉住·${m.pipeline === 'planner' ? 'Vercel' : 'OpenRouter'}</span>` : '<span class="badge orange">请先探测</span>';
+    const mode = s.config.pinMode || 'strict';
+    const sort = s.config.sort || '';
+    return `<tr>
+      <td class="mono">${s.id}<div style="margin-top:4px">${pipe}</div>${tier0}</td>
+      <td>${canon}</td>
+      <td>${ups === null ? '<span class="dim">—</span>' : ups}</td>
+      <td>${last}${m?.lastMs ? `<div class="dim" style="font-size:11px">${m.lastMs} ms</div>` : ''}</td>
+      <td>
+        <select onchange="saveCfg('${s.id}','upstream',this.value)">${upstreamOptions(m, s.config.upstream)}</select>
+        <div style="margin-top:4px"><select onchange="saveCfg('${s.id}','pinMode',this.value)" title="严格：目标上游不可用即报错；优先：先试目标上游，失败自动回退其他上游">
+          <option value="strict" ${mode === 'strict' ? 'selected' : ''}>严格钉住</option>
+          <option value="preferred" ${mode === 'preferred' ? 'selected' : ''}>优先+回退</option>
+        </select>
+        <select onchange="saveCfg('${s.id}','sort',this.value)" title="按指标排序上游（不选上游时也可单独使用）">
+          <option value="" ${!sort ? 'selected' : ''}>网关智能选</option>
+          <option value="cost" ${sort === 'cost' ? 'selected' : ''}>最低成本</option>
+          <option value="ttft" ${sort === 'ttft' ? 'selected' : ''}>最快首字</option>
+          <option value="tps" ${sort === 'tps' ? 'selected' : ''}>最高吞吐</option>
+        </select></div>
+      </td>
+      <td><input type="number" min="0" max="20" value="${s.config.maxRetries || 0}" onchange="saveCfg('${s.id}','maxRetries',this.value)" title="非流式请求最多尝试次数；0=只发一次"></td>
+      <td><div class="row-actions">
+        <button class="ghost" onclick="probe('${s.id}', this)">探测</button>
+        <button class="ghost" onclick="test('${s.id}', this)">测试</button>
+        <button class="ghost" onclick="validate('${s.id}', this)" title="把每个上游渠道各钉一次最小请求，标出可用/限流/不可钉">校验</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  $('#subBody').innerHTML = rows;
+
+  $('#testModel').innerHTML = DATA.subscription.map((s) => `<option value="${s.id}">${s.id}</option>`).join('');
+  onTestModelChange();
+
+  $('#catSummary').textContent = `展开（共 ${DATA.catalogCount} 个目录模型）`;
+  renderCatalog();
+
+  loadHistory();
+}
+
+function renderCatalog() {
+  const f = ($('#catFilter').value || '').toLowerCase();
+  const list = DATA.catalog.filter((id) => !f || id.toLowerCase().includes(f)).slice(0, 400);
+  $('#catBody').innerHTML = list.map((id) => {
+    const m = DATA.subscription.find((s) => s.id === id)?.meta;
+    const pinnable = id.includes(':free');
+    return `<tr><td class="mono">${id}</td><td>${pinnable ? '<span class="badge green">:free 可精确钉住</span>' : '<span class="badge orange">规划器管理</span>'}</td>
+    <td>${m?.lastProvider ? '<span class="badge">' + m.lastProvider + '</span>' : ''}</td>
+    <td><button class="ghost" onclick="probe('${id}', this)">探测</button></td></tr>`;
+  }).join('') || '<tr><td class="empty">无匹配</td></tr>';
+}
+
+async function loadAll() {
+  const [models, accs, sec, meta] = await Promise.all([api('/api/models'), api('/api/accounts'), api('/api/security'), api('/api/meta')]);
+  DATA = models;
+  ACCS = accs;
+  render();
+  renderAccounts();
+  renderSecurity(sec);
+  $('#noKeyBanner').style.display = meta.configured ? 'none' : 'block';
+}
+
+function renderSecurity(sec) {
+  $('#secProxyKey').value = sec.proxyKey || '';
+  $('#secPublicBase').value = sec.publicBaseUrl || '';
+  const badge = $('#secBadge');
+  badge.textContent = sec.authRequired ? '鉴权已开启' : '鉴权已关闭';
+  badge.className = sec.authRequired ? 'badge green' : 'badge orange';
+}
+
+async function saveSecurity() {
+  const payload = {
+    proxyKey: $('#secProxyKey').value.trim(),
+    publicBaseUrl: $('#secPublicBase').value.trim(),
+  };
+  const r = await api('/api/security', payload);
+  if (r.ok) {
+    // 控制台鉴权与代理密钥同源：改完立即换新密钥，避免会话失效
+    if (r.proxyKey) { AUTH_KEY = r.proxyKey; localStorage.setItem('cps_key', r.proxyKey); }
+    renderSecurity(r);
+    DATA.proxyBase = r.proxyBase;
+    $('#proxyBase').textContent = '代理地址：' + r.proxyBase + '（点击复制）';
+    secMsg('已保存' + (r.authRequired ? '，鉴权开启' : '，鉴权已关闭（任何客户端都可访问代理）'));
+  } else secMsg(r.error?.message || '保存失败', true);
+}
+
+function secMsg(msg, isErr) {
+  const el = $('#secMsg');
+  el.textContent = msg;
+  el.style.color = isErr ? 'var(--red)' : 'var(--green)';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.textContent = ''; }, 8000);
+}
+
+async function probe(id, btn) {
+  btn.disabled = true; btn.textContent = '探测中…'; status('正在探测 ' + id);
+  const r = await api('/api/probe', { model: id });
+  btn.disabled = false; btn.textContent = '探测';
+  status(r.ok ? `${id} 探测完成：上游 ${r.upstreams?.length ?? 0} 个，命中 ${r.lastProvider}` : `探测失败：${r.error}`);
+  await loadAll();
+}
+
+async function probeAll() {
+  const btn = $('#probeAllBtn'); btn.disabled = true;
+  for (const s of DATA.subscription) {
+    btn.textContent = `探测中 ${s.id}`;
+    await api('/api/probe', { model: s.id });
+  }
+  btn.disabled = false; btn.textContent = '批量探测订阅模型';
+  await loadAll();
+}
+
+async function test(id, btn) {
+  btn.disabled = true; btn.textContent = '测试中…';
+  const sel = document.querySelector(`#subBody select[onchange^="saveCfg('${id}','upstream'"]`);
+  const r = await api('/api/test', { model: id, upstream: sel ? sel.value || null : null });
+  btn.disabled = false; btn.textContent = '测试';
+  showTest(r, id, sel ? sel.value : null);
+}
+
+async function validate(id, btn) {
+  btn.disabled = true; btn.textContent = '校验中…';
+  status(`正在校验 ${id} 的全部上游渠道（约需 1 分钟）…`);
+  try {
+    const r = await api('/api/validate-upstreams', { model: id });
+    status(`校验完成：✔可用 ${r.summary.ok} · ⏳限流 ${r.summary.limited} · ✘不可钉 ${r.summary.bad} · 🔑key错 ${r.summary.auth} · 未判定 ${r.summary.unknown}（下拉框已标注并排序）`);
+  } catch (e) {
+    status('校验失败');
+  }
+  btn.disabled = false; btn.textContent = '校验';
+  await loadAll();
+}
+
+async function runTest() {
+  const btn = $('#testBtn'); btn.disabled = true; btn.textContent = '发送中…';
+  const model = $('#testModel').value, up = $('#testUpstream').value || null;
+  const r = await api('/api/test', { model, upstream: up });
+  btn.disabled = false; btn.textContent = '发送测试';
+  showTest(r, model, up);
+}
+
+function onTestModelChange() {
+  const m = DATA.subscription.find((s) => s.id === $('#testModel').value);
+  $('#testUpstream').innerHTML = upstreamOptions(m?.meta, null);
+}
+
+function showTest(r, model, target) {
+  const el = $('#testResult'); el.style.display = 'block';
+  if (!r.ok) { el.innerHTML = `<span class="mismatch">请求失败：${r.error}</span>`; return; }
+  const hit = !target || r.actual === target;
+  el.innerHTML = `<div class="kvs">
+      <div>模型 <b class="mono">${model}</b></div>
+      <div>目标上游 <b>${target || '自动'}</b></div>
+      <div>实际上游 <b class="${hit ? 'match' : 'mismatch'}">${r.actual || '未知'}</b></div>
+      <div>耗时 <b>${r.ms} ms</b></div>
+    </div>${hit ? '✔ 上游匹配，选择已生效。' : (r.actual ? '✘ 未命中目标上游：渠道可能限流或不可钉（点「校验」检查全部渠道）；严格模式失败会直接报错，可改用「优先+回退」。' : '该模型响应未携带上游信息，无法回读实际上游。')}
+    <div class="dim" style="margin-top:6px">回复：${r.content || '(空)'}　·　背后模型：${r.canonicalSlug || '—'}　·　管道：${r.pipeline === 'direct' ? '直连(OpenRouter)' : r.pipeline === 'planner' ? '规划器(Vercel)' : '未知'}</div>`;
+}
+
+async function saveCfg(id, field, value) {
+  const cfg = DATA.subscription.find((s) => s.id === id).config;
+  const patch = { upstream: cfg.upstream || null, maxRetries: cfg.maxRetries || 0, pinMode: cfg.pinMode || 'strict', sort: cfg.sort || null };
+  if (field === 'upstream') patch.upstream = value || null;
+  else if (field === 'pinMode') patch.pinMode = value || 'strict';
+  else if (field === 'sort') patch.sort = value || null;
+  else if (field === 'maxRetries') patch.maxRetries = parseInt(value) || 0;
+  await api('/api/config', { perModel: { [id]: patch } });
+  status(`${id} 配置已保存`);
+}
+
+async function loadHistory() {
+  const { history } = await api('/api/history');
+  $('#histBody').innerHTML = history.length ? history.map((h) => `<tr>
+      <td>${fmt(h.ts)}</td><td class="mono">${h.model}</td>
+      <td>${h.account ? '<span class="badge">' + h.account + '</span>' : '<span class="dim">—</span>'}</td>
+      <td>${h.provider ? '<span class="badge">' + h.provider + '</span>' : '<span class="dim">—</span>'}</td>
+      <td class="mono dim">${h.canonical || '—'}</td>
+      <td>${h.ms ?? '—'} ms</td>
+      <td>${h.stream ? '流式' : '非流式'}</td>
+      <td class="dim">${(h.attempts || []).join(' → ') || '—'}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">暂无记录 —— 把客户端 Base URL 指向代理地址即可自动记录</td></tr>';
+}
+
+let ACCS = null;
+const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function renderAccounts() {
+  if (!ACCS) return;
+  $('#accMode').value = ACCS.mode;
+  const show = $('#accShowKeys').checked;
+  const rows = ACCS.accounts.map((a, i) => {
+    const st = (ACCS.stats || {})[a.name] || {};
+    const checked = ACCS.mode === 'single' && i === ACCS.active;
+    return `<tr>
+      <td><input type="radio" name="accActive" data-i="${i}" ${checked ? 'checked' : ''} ${ACCS.mode !== 'single' ? 'disabled title="轮询模式下按顺序轮流使用"' : 'title="单账号模式下使用此账号"'}></td>
+      <td><input class="accName" data-i="${i}" value="${escapeHtml(a.name)}" style="width:110px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 8px; font-size:12.5px"></td>
+      <td><input class="accKey" data-i="${i}" type="${show ? 'text' : 'password'}" value="${escapeHtml(a.key)}" style="width:100%; min-width:280px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 8px; font-family:Consolas, monospace; font-size:12px"></td>
+      <td><input type="checkbox" class="accEnabled" data-i="${i}" ${a.enabled !== false ? 'checked' : ''}></td>
+      <td>${st.requests ?? 0}${st.lastError ? '<div class="mismatch" style="font-size:11px">最近有错误</div>' : ''}</td>
+      <td class="dim" style="font-size:12px">${st.lastUsed ? fmt(st.lastUsed) : '—'}</td>
+      <td><div class="row-actions">
+        <button class="ghost" onclick="testAccount(${i}, this)">测试</button>
+        <button class="ghost" onclick="delAccount(${i})">删除</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  $('#accBody').innerHTML = rows || '<tr><td colspan="7" class="empty">暂无账号，点击「＋ 添加账号」</td></tr>';
+}
+
+// 把 DOM 里当前编辑值收回 ACCS（避免重渲染丢输入）
+function collectAccounts() {
+  const mode = $('#accMode').value;
+  const accs = ACCS.accounts.map((a, i) => ({
+    name: document.querySelector(`.accName[data-i="${i}"]`)?.value?.trim() || a.name,
+    key: document.querySelector(`.accKey[data-i="${i}"]`)?.value?.trim() || '',
+    enabled: document.querySelector(`.accEnabled[data-i="${i}"]`)?.checked !== false,
+  }));
+  const checked = document.querySelector('input[name="accActive"]:checked');
+  const active = checked ? parseInt(checked.dataset.i) : Math.min(ACCS.active ?? 0, Math.max(0, accs.length - 1));
+  return { accounts: accs, mode, active };
+}
+
+async function saveAccounts() {
+  const payload = collectAccounts();
+  if (!payload.accounts.filter((a) => a.key).length) { accMsg('至少需要一个 key 非空的账号', true); return; }
+  const r = await api('/api/accounts', payload);
+  if (r.ok) { accMsg(`已保存：${r.accounts} 个账号 · ${r.mode === 'roundrobin' ? '轮询' : '单账号'}模式`); await loadAll(); }
+  else accMsg(r.error?.message || '保存失败', true);
+}
+
+function addAccountRow() {
+  const cur = collectAccounts();
+  cur.accounts.push({ name: `账号${cur.accounts.length + 1}`, key: '', enabled: true });
+  ACCS.accounts = cur.accounts; ACCS.mode = cur.mode; ACCS.active = cur.active;
+  renderAccounts();
+  const last = document.querySelectorAll('.accKey');
+  if (last.length) last[last.length - 1].focus();
+}
+
+function delAccount(i) {
+  const cur = collectAccounts();
+  cur.accounts.splice(i, 1);
+  ACCS.accounts = cur.accounts; ACCS.mode = cur.mode; ACCS.active = Math.min(cur.active, Math.max(0, cur.accounts.length - 1));
+  renderAccounts();
+}
+
+async function testAccount(i, btn) {
+  collectAccounts();
+  const acc = ACCS.accounts[i];
+  if (!acc.key) { accMsg('请先填写该账号的 key', true); return; }
+  btn.disabled = true; btn.textContent = '测试中…'; accMsg(`正在测试 ${acc.name} …`);
+  const r = await api('/api/accounts/test', { key: acc.key });
+  btn.disabled = false; btn.textContent = '测试';
+  accMsg(r.ok ? `✔ ${acc.name} 可用（${r.ms} ms）${r.note ? ' · ' + r.note : ''}` : `✘ ${acc.name} 不可用：${r.error}`, !r.ok);
+}
+
+function toggleKeyVis() {
+  const show = $('#accShowKeys').checked;
+  document.querySelectorAll('.accKey').forEach((el) => { el.type = show ? 'text' : 'password'; });
+}
+
+function accMsg(msg, isErr) {
+  const el = $('#accMsg');
+  el.textContent = msg;
+  el.style.color = isErr ? 'var(--red)' : 'var(--green)';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.textContent = ''; }, 8000);
+}
+
+let statusTimer;
+function status(msg) { $('#status').textContent = msg; clearTimeout(statusTimer); statusTimer = setTimeout(() => $('#status').textContent = '', 6000); }
+
+$('#proxyBase').onclick = () => navigator.clipboard.writeText(DATA.proxyBase).then(() => status('已复制代理地址'));
+$('#testModel').addEventListener('change', onTestModelChange);
+$('#catFilter').addEventListener('input', renderCatalog);
+$('#loginKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryLogin(); });
+if (AUTH_KEY) loadAll().catch(() => {}); else showLogin();
+</script>
+</body>
+</html>

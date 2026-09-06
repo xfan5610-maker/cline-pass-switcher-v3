@@ -1,0 +1,5 @@
+# CPASS_DOMAIN 为空时监听本地 HTTPS（自签证书），设置域名后自动申请 Let's Encrypt 证书
+{$CPASS_DOMAIN:localhost} {
+	tls {$CPASS_TLS_EMAIL:internal}
+	reverse_proxy app:3123
+}
