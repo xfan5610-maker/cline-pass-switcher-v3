@@ -361,7 +361,9 @@ async function fetchOfficialModels() {
     config.knownModels.push(...added);
     saveConfig();
   }
-  return { sources, found: valid.length, added, knownModels: config.knownModels };
+  META.officialModelsFetch = { ts: Date.now(), sources, found: valid.length, added, total: config.knownModels.length };
+  saveMeta();
+  return { sources, found: valid.length, added, knownModels: config.knownModels, ...META.officialModelsFetch };
 }
 
 function record(modelId, info) {
@@ -601,7 +603,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/models') {
       const cat = await catalog();
       const sub = config.knownModels.map((id) => ({ id, config: config.perModel[id] || {}, meta: META.models[id] || null }));
-      return sendJSON(res, 200, { subscription: sub, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase() });
+      return sendJSON(res, 200, { subscription: sub, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null });
     }
     if (req.method === 'POST' && p === '/api/probe') {
       const { model } = await JSON.parse(await readBody(req).then((b) => b.toString()));

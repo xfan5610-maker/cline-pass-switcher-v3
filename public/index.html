@@ -46,6 +46,8 @@
   @keyframes r { to { transform: rotate(360deg); } }
   .empty { color: var(--dim); font-size: 13px; padding: 14px 10px; }
   .match { color: var(--green); } .mismatch { color: var(--orange); }
+  tr.row-new td { animation: newflash 4s ease-out; }
+  @keyframes newflash { 0% { background: #1f3d2a; } 70% { background: #1f3d2a; } 100% { background: transparent; } }
 </style>
 </head>
 <body>
@@ -124,10 +126,14 @@
   </div>
 
   <div class="card">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
       <h2 style="margin:0">订阅模型（cline-pass/*）</h2>
-      <button class="ghost" onclick="fetchOfficial(this)" title="从官方文档与社区注册表拉取最新订阅模型清单并合并（只增不删）">⬇ 拉取官方最新模型</button>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span class="dim" style="font-size:12px" id="officialInfo"></span>
+        <button class="ghost" onclick="fetchOfficial(this)" title="从官方文档与社区注册表拉取最新订阅模型清单并合并（只增不删）">⬇ 拉取官方最新模型</button>
+      </div>
     </div>
+    <div class="result" id="fetchResult" style="display:none; margin-bottom:12px;"></div>
     <table>
       <thead><tr>
         <th>模型</th><th>背后模型</th><th>上游数</th><th>最近实际上游</th><th>上游切换 / 模式 / 排序</th><th>重试博弈</th><th>操作</th>
@@ -223,7 +229,7 @@ function render() {
     const pipe = m?.pinnable ? `<span class="badge green">可精确钉住·${m.pipeline === 'planner' ? 'Vercel' : 'OpenRouter'}</span>` : '<span class="badge orange">请先探测</span>';
     const mode = s.config.pinMode || 'strict';
     const sort = s.config.sort || '';
-    return `<tr>
+    return `<tr${LAST_ADDED.includes(s.id) ? ' class="row-new"' : ''}>
       <td class="mono">${s.id}<div style="margin-top:4px">${pipe}</div>${tier0}</td>
       <td>${canon}</td>
       <td>${ups === null ? '<span class="dim">—</span>' : ups}</td>
@@ -255,6 +261,8 @@ function render() {
   onTestModelChange();
 
   $('#catSummary').textContent = `展开（共 ${DATA.catalogCount} 个目录模型）`;
+  const of = DATA.officialFetch;
+  $('#officialInfo').textContent = of ? `上次拉取 ${new Date(of.ts).toLocaleString()}（${(of.sources || []).join('+')}，新增 ${of.added.length}）` : '尚未拉取过官方清单';
   renderCatalog();
 
   loadHistory();
@@ -348,15 +356,26 @@ async function test(id, btn) {
   showTest(r, id, sel ? sel.value : null);
 }
 
+let LAST_ADDED = [];
 async function fetchOfficial(btn) {
   btn.disabled = true; btn.textContent = '拉取中…';
-  status('正在从官方文档 / 社区注册表拉取最新订阅模型清单…');
+  const el = $('#fetchResult');
   try {
     const r = await api('/api/fetch-official-models', {});
-    status(`拉取完成（来源: ${r.sources.join(' + ') || '无可用来源'}）：官方清单 ${r.found} 个，新增 ${r.added.length} 个${r.added.length ? ' → ' + r.added.join(', ') : '（清单已是最新）'}`);
+    LAST_ADDED = r.added || [];
+    el.style.display = 'block';
+    el.innerHTML = `<div class="kvs">
+      <div>拉取时间 <b>${new Date().toLocaleTimeString()}</b></div>
+      <div>来源 <b>${r.sources.join(' + ') || '无可用来源'}</b></div>
+      <div>官方清单 <b>${r.found} 个</b></div>
+      <div>新增 <b class="${r.added.length ? 'match' : 'dim'}">${r.added.length} 个</b></div>
+      <div>合并后 <b>${r.knownModels.length} 个</b></div>
+    </div>${r.added.length ? '✔ 检测到新模型，已加入下方列表并高亮显示：' + r.added.join('、') : '✔ 清单已是最新：官方渠道 ' + r.found + ' 个模型均已覆盖，现有 ' + r.knownModels.length + ' 个订阅模型保持不变。'}`;
     await loadAll();
+    setTimeout(() => { LAST_ADDED = []; }, 6000);
   } catch (e) {
-    status('拉取失败，请稍后重试');
+    el.style.display = 'block';
+    el.innerHTML = '<span class="mismatch">拉取失败，请稍后重试</span>';
   }
   btn.disabled = false; btn.textContent = '⬇ 拉取官方最新模型';
 }
@@ -517,7 +536,16 @@ $('#proxyBase').onclick = () => navigator.clipboard.writeText(DATA.proxyBase).th
 $('#testModel').addEventListener('change', onTestModelChange);
 $('#catFilter').addEventListener('input', renderCatalog);
 $('#loginKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryLogin(); });
-if (AUTH_KEY) loadAll().catch(() => {}); else showLogin();
+// 仅当服务端开启鉴权且本地没有已保存的密钥时才弹登录框
+(async () => {
+  try {
+    const meta = await (await fetch('/api/meta')).json();
+    if (meta.authRequired && !AUTH_KEY) showLogin();
+    else loadAll().catch(() => {});
+  } catch {
+    loadAll().catch(() => {});
+  }
+})();
 </script>
 </body>
 </html>
