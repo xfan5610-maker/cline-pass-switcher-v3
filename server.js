@@ -22,6 +22,7 @@ const DEFAULT_CONFIG = {
   apiKey: '',
   proxyKey: '',
   publicBaseUrl: '',
+  exposeCatalog: false,    // true 时 /v1/models 合并完整目录模型（默认仅订阅模型）
   upstreamBase: 'https://api.cline.bot/api/v1',
   accounts: [],            // { name, key, enabled } —— Cline Pass 账号池
   accountMode: 'single',   // single=手动指定 | roundrobin=轮询
@@ -638,15 +639,16 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true, ms: Date.now() - t0, model });
     }
     if (req.method === 'GET' && p === '/api/security') {
-      return sendJSON(res, 200, { proxyKey: config.proxyKey || '', publicBaseUrl: config.publicBaseUrl || '', authRequired: !!PROXY_KEY });
+      return sendJSON(res, 200, { proxyKey: config.proxyKey || '', publicBaseUrl: config.publicBaseUrl || '', authRequired: !!PROXY_KEY, exposeCatalog: !!config.exposeCatalog });
     }
     if (req.method === 'POST' && p === '/api/security') {
       const body = JSON.parse(await readBody(req).then((b) => b.toString()));
       if (body.proxyKey !== undefined) config.proxyKey = String(body.proxyKey).trim();
       if (body.publicBaseUrl !== undefined) config.publicBaseUrl = String(body.publicBaseUrl).trim().replace(/\/+$/, '');
+      if (body.exposeCatalog !== undefined) config.exposeCatalog = !!body.exposeCatalog;
       saveConfig();
       PROXY_KEY = config.proxyKey || '';
-      return sendJSON(res, 200, { ok: true, proxyKey: config.proxyKey, publicBaseUrl: config.publicBaseUrl, authRequired: !!PROXY_KEY, proxyBase: publicProxyBase() });
+      return sendJSON(res, 200, { ok: true, proxyKey: config.proxyKey, publicBaseUrl: config.publicBaseUrl, authRequired: !!PROXY_KEY, proxyBase: publicProxyBase(), exposeCatalog: !!config.exposeCatalog });
     }
     if (req.method === 'POST' && p === '/api/validate-upstreams') {
       const { model } = JSON.parse(await readBody(req).then((b) => b.toString()));
@@ -674,8 +676,10 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true });
     }
     if (req.method === 'GET' && (p === '/v1/models' || p === '/api/v1/models' || p === '/models')) {
-      const cat = await catalog();
-      const ids = [...new Set([...config.knownModels, ...cat])];
+      // 默认只暴露订阅模型，避免目录模型淹没客户端的模型选择器；exposeCatalog=true 时合并完整目录
+      const ids = config.exposeCatalog
+        ? [...new Set([...config.knownModels, ...(await catalog())])]
+        : [...new Set([...config.knownModels, ...Object.keys(config.perModel)])];
       return sendJSON(res, 200, { object: 'list', data: ids.map((id) => ({ id, object: 'model' })) });
     }
     if (CHAT_PATHS.has(p) && req.method === 'POST') return handleChat(req, res);

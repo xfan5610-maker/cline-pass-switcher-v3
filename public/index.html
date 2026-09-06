@@ -154,6 +154,9 @@
 
   <div class="card">
     <h2>完整模型目录（Cline 公开目录，含 :free 可钉住模型）</h2>
+    <div style="margin-bottom:10px">
+      <label class="dim" style="font-size:13px"><input type="checkbox" id="exposeCatalog" onchange="saveExposeCatalog(this.checked)"> 把目录模型加入代理的 /v1/models（默认关闭：客户端只看到订阅模型）</label>
+    </div>
     <details>
       <summary id="catSummary">展开</summary>
       <input id="catFilter" placeholder="输入过滤… 如 free / glm / anthropic" style="margin:10px 0; width:300px; display:block">
@@ -282,6 +285,14 @@ function renderSecurity(sec) {
   const badge = $('#secBadge');
   badge.textContent = sec.authRequired ? '鉴权已开启' : '鉴权已关闭';
   badge.className = sec.authRequired ? 'badge green' : 'badge orange';
+  const ec = $('#exposeCatalog');
+  if (ec) ec.checked = !!sec.exposeCatalog;
+}
+
+async function saveExposeCatalog(v) {
+  const r = await api('/api/security', { exposeCatalog: v });
+  if (r.ok) secMsg(v ? '已开启：/v1/models 将包含全部目录模型' : '已关闭：/v1/models 仅返回订阅模型');
+  else secMsg(r.error?.message || '保存失败', true);
 }
 
 async function saveSecurity() {
