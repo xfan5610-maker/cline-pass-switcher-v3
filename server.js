@@ -28,16 +28,20 @@ const DEFAULT_CONFIG = {
   accountMode: 'single',   // single=手动指定 | roundrobin=轮询
   activeAccount: 0,        // single 模式下使用的账号下标
   knownModels: [
-    'cline-pass/glm-5.2',
-    'cline-pass/kimi-k2.7-code',
-    'cline-pass/kimi-k2.6',
-    'cline-pass/deepseek-v4-pro',
+    'cline-pass/glm-5.3-flash',
+    'cline-pass/kimi-k3',
     'cline-pass/deepseek-v4-flash',
-    'cline-pass/mimo-v2.5',
-    'cline-pass/mimo-v2.5-pro',
+    'cline-pass/qwen3.8-max',
     'cline-pass/minimax-m3',
-    'cline-pass/qwen3.7-max',
+    'cline-pass/glm-5.3',
+    'cline-pass/glm-5.2',
+    'cline-pass/deepseek-v4-pro',
+    'cline-pass/mimo-v2.5-pro',
+    'cline-pass/mimo-v2.5',
+    'cline-pass/kimi-k2.6',
     'cline-pass/qwen3.7-plus',
+    'cline-pass/kimi-k2.7-code',
+    'cline-pass/qwen3.7-max',
   ],
   // modelId -> { upstream: string|null, maxRetries: number }
   // upstream=null: 自动（不干预）；upstream+maxRetries=0: 注入 provider.only 尝试钉住（1 次）；
@@ -333,6 +337,33 @@ async function validateUpstreams(modelId) {
   return results;
 }
 
+// 从官方文档与社区注册表拉取最新 ClinePass 订阅模型清单（只增不删）
+async function fetchOfficialModels() {
+  const found = new Set();
+  const sources = [];
+  try {
+    const { json } = await fetchJSON('https://models.dev/api.json', {}, 30000);
+    const cp = json?.providers?.['cline-pass'];
+    if (cp?.models) {
+      Object.keys(cp.models).forEach((id) => found.add(id.startsWith('cline-pass/') ? id : `cline-pass/${id}`));
+      sources.push('models.dev');
+    }
+  } catch { /* 来源不可用则跳过 */ }
+  try {
+    const res = await fetch('https://docs.cline.bot/getting-started/clinepass', { signal: AbortSignal.timeout(30000) });
+    const text = await res.text();
+    const ids = text.match(/cline-pass\/[a-z0-9._-]+/gi) || [];
+    if (ids.length) { ids.forEach((id) => found.add(id.toLowerCase())); sources.push('docs.cline.bot'); }
+  } catch { /* 来源不可用则跳过 */ }
+  const valid = [...found].filter((id) => /^cline-pass\/[a-z0-9._-]+$/.test(id));
+  const added = valid.filter((id) => !config.knownModels.includes(id));
+  if (added.length) {
+    config.knownModels.push(...added);
+    saveConfig();
+  }
+  return { sources, found: valid.length, added, knownModels: config.knownModels };
+}
+
 function record(modelId, info) {
   META.models[modelId] = { ...(META.models[modelId] || {}), ...info };
   META.history.unshift({ ts: Date.now(), model: modelId, ...info });
@@ -505,6 +536,11 @@ async function handleChat(req, res) {
   }
   const { status, out, routing } = last;
   if (target && status !== 200) learnUpstreamStatus(modelId, target, out?.error?.message || (out?.error ? JSON.stringify(out.error) : ''));
+  // 客户端实际使用成功的新订阅模型自动收录进列表
+  if (status === 200 && /^cline-pass\//.test(String(modelId)) && !config.knownModels.includes(modelId)) {
+    config.knownModels.push(modelId);
+    saveConfig();
+  }
   record(modelId, {
     provider: routing.finalProvider || null,
     canonical: routing.canonicalSlug || null,
@@ -657,6 +693,10 @@ const server = http.createServer(async (req, res) => {
       const summary = { ok: 0, limited: 0, bad: 0, auth: 0, unknown: 0 };
       for (const r of Object.values(results)) summary[r.status] = (summary[r.status] || 0) + 1;
       return sendJSON(res, 200, { ok: true, summary, results, upstreams: META.models[model]?.upstreams || [] });
+    }
+    if (req.method === 'POST' && p === '/api/fetch-official-models') {
+      const r = await fetchOfficialModels();
+      return sendJSON(res, 200, { ok: true, ...r });
     }
     if (req.method === 'GET' && p === '/api/history') return sendJSON(res, 200, { history: META.history });
     if (req.method === 'GET' && p === '/api/config') return sendJSON(res, 200, { port: config.port, perModel: config.perModel, knownModels: config.knownModels });

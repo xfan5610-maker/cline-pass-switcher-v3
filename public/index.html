@@ -124,7 +124,10 @@
   </div>
 
   <div class="card">
-    <h2>订阅模型（cline-pass/*）</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+      <h2 style="margin:0">订阅模型（cline-pass/*）</h2>
+      <button class="ghost" onclick="fetchOfficial(this)" title="从官方文档与社区注册表拉取最新订阅模型清单并合并（只增不删）">⬇ 拉取官方最新模型</button>
+    </div>
     <table>
       <thead><tr>
         <th>模型</th><th>背后模型</th><th>上游数</th><th>最近实际上游</th><th>上游切换 / 模式 / 排序</th><th>重试博弈</th><th>操作</th>
@@ -343,6 +346,19 @@ async function test(id, btn) {
   const r = await api('/api/test', { model: id, upstream: sel ? sel.value || null : null });
   btn.disabled = false; btn.textContent = '测试';
   showTest(r, id, sel ? sel.value : null);
+}
+
+async function fetchOfficial(btn) {
+  btn.disabled = true; btn.textContent = '拉取中…';
+  status('正在从官方文档 / 社区注册表拉取最新订阅模型清单…');
+  try {
+    const r = await api('/api/fetch-official-models', {});
+    status(`拉取完成（来源: ${r.sources.join(' + ') || '无可用来源'}）：官方清单 ${r.found} 个，新增 ${r.added.length} 个${r.added.length ? ' → ' + r.added.join(', ') : '（清单已是最新）'}`);
+    await loadAll();
+  } catch (e) {
+    status('拉取失败，请稍后重试');
+  }
+  btn.disabled = false; btn.textContent = '⬇ 拉取官方最新模型';
 }
 
 async function validate(id, btn) {
