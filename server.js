@@ -43,9 +43,11 @@ const DEFAULT_CONFIG = {
     'cline-pass/kimi-k2.7-code',
     'cline-pass/qwen3.7-max',
   ],
-  // modelId -> { upstream: string|null, maxRetries: number }
-  // upstream=null: 自动（不干预）；upstream+maxRetries=0: 注入 provider.only 尝试钉住（1 次）；
-  // upstream+maxRetries>0: 重试博弈——非流式请求最多尝试 N 次直到实际落在目标上游。
+  // modelId -> { upstreams: string[]（有序优先列表，空=自动）, exclude: string[]（排除列表，优先级高于勾选）,
+  //              pinMode: 'strict'|'preferred', sort: 'cost'|'ttft'|'tps'|null }
+  // 请求按 upstreams 顺序逐个钉住尝试：第一个异常（非 200 / 网络失败 / 超时）自动顺切下一个，
+  // 全部失败才把最后一个错误透传给客户端；exclude 中的上游永不被使用（自动模式下注入排除偏好）。
+  // upstream 为旧版单上游兼容镜像（取列表第一个），maxRetries 已退役（旧值仅作回滚兼容保留在文件里）。
   perModel: {},
 };
 
@@ -68,6 +70,19 @@ if ((!Array.isArray(config.accounts) || config.accounts.length === 0) && config.
   saveConfig();
 }
 config.accountMode = config.accountMode === 'roundrobin' ? 'roundrobin' : 'single';
+
+// perModel 配置升级：旧版单 upstream 迁移为有序多上游列表（upstream 保留为回滚兼容镜像）
+(function migratePerModel() {
+  let dirty = false;
+  for (const c of Object.values(config.perModel || {})) {
+    if (!c || typeof c !== 'object') continue;
+    if (c.upstreams === undefined) { c.upstreams = c.upstream ? [c.upstream] : []; dirty = true; }
+    if (c.exclude === undefined) { c.exclude = []; dirty = true; }
+    if (!Array.isArray(c.upstreams)) { c.upstreams = []; dirty = true; }
+    if (!Array.isArray(c.exclude)) { c.exclude = []; dirty = true; }
+  }
+  if (dirty) saveConfig();
+})();
 
 // 环境变量覆盖（便于 Docker 部署）。注意：此后若通过控制台保存设置，当前生效值会写回 config.json
 if (process.env.CLINE_PASS_KEY) {
@@ -302,6 +317,19 @@ function learnUpstreamStatus(modelId, upstream, errMsg) {
   meta.upstreamStatus = { ...(meta.upstreamStatus || {}), [upstream]: { status: st, note: String(errMsg).slice(0, 160), checkedAt: Date.now() } };
 }
 
+// 自动+排除模式：only 白名单与网关侧渠道清单不一致时，网关报错会附最新清单，合并学习
+// （触发场景：探测缓存过期，网关侧新增了渠道而本地 known 列表没有——白名单漏掉新渠道）
+function learnAvailableProviders(modelId, errMsg) {
+  const m = /Available providers are:\s*([^.]+)/.exec(String(errMsg || ''));
+  if (!m) return;
+  const toks = m[1].split(/,\s*/).map((s) => s.trim()).filter((t) => /^[a-z0-9][a-z0-9-]*$/.test(t));
+  if (!toks.length) return;
+  const meta = (META.models[modelId] ||= {});
+  const before = (meta.upstreams || []).length;
+  meta.upstreams = [...new Set([...(meta.upstreams || []), ...toks])];
+  if (meta.upstreams.length !== before) saveMeta();
+}
+
 // 批量校验：把模型的每个上游渠道用最小请求各钉一次，标记真实可用性
 async function validateUpstreams(modelId) {
   const meta = META.models[modelId] || {};
@@ -415,27 +443,195 @@ function unwrap(json) {
 // - 管道未知时两种形式同时注入，各自取用、互不干扰。
 const OR_SORT = { cost: 'price', ttft: 'latency', tps: 'throughput' };
 
-function injectPrefs(body, modelId, cfg) {
+// upstream: 本次尝试钉住的上游（null=自动）；orderRest: preferred 模式下排在当前上游之后的回退序列；
+// excludeList: 排除列表。网关不支持 exclude/ignore 字段（实测被静默忽略），因此排除统一换算成 only 白名单：
+// 自动模式 only=已知上游-排除；preferred 钉住模式 order=[当前,...] 且 only=已知上游-排除（防止网关回退到被排除渠道）；
+// 严格钉住模式 only=[当前上游]，天然排除其他一切渠道。
+function injectPrefs(body, modelId, { upstream, orderRest = [], excludeList = [], strict = true, sort = null }) {
   const b = JSON.parse(JSON.stringify(body));
-  const upstream = cfg?.upstream || null;
-  if (!upstream && !cfg?.sort) return b;
-  const strict = (cfg.pinMode || 'strict') === 'strict';
-  const pipeline = META.models[modelId]?.pipeline || null;
+  const exclude = (excludeList || []).filter((u) => u !== upstream);
+  const meta = META.models[modelId] || {};
+  const known = meta.upstreams || [];
+  const allowList = exclude.length ? known.filter((u) => !exclude.includes(u)) : null;
+  if (!upstream && !sort && !(allowList && allowList.length)) return b;
+  const pipeline = meta.pipeline || null;
   const useVercel = pipeline === 'planner' || pipeline === null;
   const useOpenRouter = pipeline === 'direct' || pipeline === null;
   if (useVercel) {
     const gw = {};
-    if (upstream) { if (strict) gw.only = [upstream]; else gw.order = [upstream]; }
-    if (cfg.sort) gw.sort = cfg.sort;
+    if (upstream) {
+      if (strict) gw.only = [upstream];
+      else {
+        gw.order = [upstream, ...orderRest];
+        if (allowList && allowList.length) gw.only = allowList;
+      }
+    } else if (allowList && allowList.length) {
+      gw.only = allowList;
+    }
+    if (sort) gw.sort = sort;
     b.providerOptions = { ...(b.providerOptions || {}), gateway: { ...(b.providerOptions?.gateway || {}), ...gw } };
   }
   if (useOpenRouter) {
     const p = { ...(b.provider || {}) };
-    if (upstream) { if (strict) p.only = [upstream]; else p.order = [upstream]; }
-    if (cfg.sort) p.sort = OR_SORT[cfg.sort] || cfg.sort;
+    if (upstream) {
+      if (strict) p.only = [upstream];
+      else {
+        p.order = [upstream, ...orderRest];
+        if (allowList && allowList.length) p.only = allowList;
+      }
+    } else if (allowList && allowList.length) {
+      p.only = allowList;
+    }
+    if (sort) p.sort = OR_SORT[sort] || sort;
     b.provider = p;
   }
   return b;
+}
+
+// 由 perModel 配置展开出故障转移候选序列：[{ upstream, orderRest, excludeList, strict, sort }, ...]
+// - 勾选了上游（排除后非空）：逐个尝试，排除的永不在候选中
+// - 未勾选：单候选自动模式，排除换算成 only 白名单注入（见 injectPrefs）
+function buildAttempts(modelId, cfg) {
+  const listed = (cfg?.upstreams || []).filter((u) => typeof u === 'string' && u);
+  const exclude = (cfg?.exclude || []).filter((u) => typeof u === 'string' && u);
+  const excl = new Set(exclude);
+  const wanted = listed.filter((u) => !excl.has(u));
+  const strict = (cfg?.pinMode || 'strict') === 'strict';
+  const sort = cfg?.sort || null;
+  const base = { strict, sort, excludeList: exclude };
+  if (wanted.length) {
+    // preferred 模式：当前上游排在 order 首位，其余勾选项作为网关侧回退序列；排除列表随行（限制网关回退范围）
+    return wanted.map((u, i) => ({ ...base, upstream: u, orderRest: strict ? [] : wanted.filter((_, j) => j !== i) }));
+  }
+  return [{ ...base, upstream: null, orderRest: [], excludeList: exclude }];
+}
+
+// 把上游错误信息归一成短字符串（用于学习与尝试日志）
+const errText = (e) => (e == null ? '' : typeof e === 'string' ? e : JSON.stringify(e));
+
+// 单次向上游网关发起非流式请求；返回 { status, out, routing, netError, acc }
+// 异常（网络错误/非 JSON/非 200）不抛出，由调用方决定切换
+async function attemptOnce(modelId, body, attempt, signal) {
+  const send = injectPrefs(body, modelId, attempt);
+  const acc = pickAccount();
+  try {
+    const res = await fetch(`${config.upstreamBase}/chat/completions`, {
+      method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(send), signal,
+    });
+    const json = await res.json().catch(() => null);
+    if (!json) return { status: 502, out: { error: { message: 'upstream returned non-JSON', type: 'upstream_error' } }, routing: {}, netError: 'non-JSON response', acc };
+    const { status, body: out, routing } = unwrap(json);
+    return { status, out, routing, netError: null, acc };
+  } catch (e) {
+    return { status: 502, out: { error: { message: `upstream fetch failed: ${e.message}`, type: 'upstream_error' } }, routing: {}, netError: e.message, acc };
+  }
+}
+
+// 顺序故障转移：依次执行候选，非 200 / 网络失败 / 超时即切换下一个；全部失败返回最后一次结果。
+// 流式：首包前（网关以 JSON 而非 SSE 应答错误）仍可切换；SSE 一旦开始即透传，无法重试。
+// 每次尝试有独立的超时中止（attemptTimeoutMs）；客户端断开会中止当前尝试。
+// 返回 { status, out, routing, acc, trace, streamUp? } —— trace 为逐次尝试 [{ upstream, status, ms, note }]
+async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTimeoutMs = 120000 } = {}) {
+  const attempts = buildAttempts(modelId, cfg);
+  const trace = [];
+  const t0 = Date.now();
+  let last = null;
+  let activeCtrl = null;            // 当前尝试的 AbortController；流式成功后保持指向该次 fetch，用于断连时中止上游 body
+  let keepCloseHook = false;        // 流式 SSE 建立后，close 钩子要保留到流结束
+  const onClientClose = () => { if (activeCtrl) activeCtrl.abort(); };
+  req.on('close', onClientClose);
+  try {
+    for (const attempt of attempts) {
+      const t1 = Date.now();
+      const ctrl = new AbortController();
+      activeCtrl = ctrl;
+      const timer = setTimeout(() => ctrl.abort(), attemptTimeoutMs);
+      try {
+        if (stream) {
+          const send = injectPrefs(body, modelId, attempt);
+          const acc = pickAccount();
+          let up = null;
+          let netError = null;
+          try {
+            up = await fetch(`${config.upstreamBase}/chat/completions`, { method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(send), signal: ctrl.signal });
+          } catch (e) { netError = e.message; }
+          const ctype = up?.headers?.get('content-type') || '';
+          let isSSE = !!up && up.status === 200 && ctype.includes('event-stream');
+          // 网关对流式错误可能返回 200 + text/event-stream，body 却是 {"error":...}：
+          // 读首个数据块探测，真正的 SSE 第一行是 "data: {...}" 且非纯错误对象
+          let firstChunk = null;
+          if (isSSE) {
+            let reader = null;
+            try {
+              reader = up.body.getReader();
+              const { value, done } = await reader.read();
+              if (done) {
+                isSSE = false;
+                netError = 'empty stream';
+              } else {
+                firstChunk = Buffer.from(value);
+                const head = firstChunk.toString('utf8').trimStart().slice(0, 200);
+                if (head.startsWith('data:')) {
+                  const payload = head.replace(/^data:\s*/, '').slice(0, 160);
+                  if (payload.startsWith('{"error"')) { isSSE = false; netError = `stream error: ${payload.slice(0, 120)}`; }
+                } else {
+                  isSSE = false;
+                  netError = `unexpected stream head: ${head.slice(0, 60)}`;
+                }
+              }
+            } catch (e) {
+              isSSE = false;
+              netError = e.message;
+            } finally {
+              try { reader?.releaseLock(); } catch {}
+            }
+          }
+          const ms = Date.now() - t1;
+          if (up && !isSSE) {
+            let text = '';
+            let json = null;
+            if (firstChunk) {
+              // 已消费的块 + 剩余 body 拼回完整错误文本
+              const rest = await up.text().catch(() => '');
+              text = firstChunk.toString('utf8') + rest;
+            } else {
+              text = await up.text();
+            }
+            try { json = JSON.parse(text); } catch {}
+            const msg = errText(json?.error) || text.slice(0, 160) || netError;
+            trace.push({ upstream: attempt.upstream, status: up.status, ms, note: msg.slice(0, 160) });
+            if (attempt.upstream) learnUpstreamStatus(modelId, attempt.upstream, msg);
+            if (!attempt.upstream && (attempt.excludeList || []).length) learnAvailableProviders(modelId, msg);
+            last = { status: json?.error ? 502 : up.status, out: json || { error: { message: text.slice(0, 400) || netError, type: 'upstream_error' } }, routing: parseRouting(json || {}), acc, netError: null };
+            continue; // 错误：还未向客户端写任何字节，可切换下一候选
+          }
+          if (!up) {
+            trace.push({ upstream: attempt.upstream, status: 502, ms, note: netError || 'no response' });
+            last = { status: 502, out: { error: { message: `upstream fetch failed: ${netError || 'no response'}`, type: 'upstream_error' } }, routing: {}, acc, netError: netError || 'no response' };
+            continue;
+          }
+          // 真 SSE：firstChunk 与剩余 body 串联透传（SSE 开始后无法重试）；close 钩子保留用于客户端断开时中止上游
+          keepCloseHook = true;
+          trace.push({ upstream: attempt.upstream, status: 200, ms, note: 'stream' });
+          return { status: 200, streamUp: up, streamHead: firstChunk, acc, trace, t0 };
+        }
+        // 非流式
+        const r = await attemptOnce(modelId, body, attempt, ctrl.signal);
+        const ms = Date.now() - t1;
+        const note = r.netError || (r.status !== 200 ? errText(r.out?.error?.message).slice(0, 160) : 'ok');
+        trace.push({ upstream: attempt.upstream, status: r.status, ms, note });
+        if (r.status !== 200 && attempt.upstream) learnUpstreamStatus(modelId, attempt.upstream, errText(r.out?.error?.message));
+        if (r.status !== 200 && !attempt.upstream && (attempt.excludeList || []).length) learnAvailableProviders(modelId, r.netError || note);
+        last = r;
+        if (r.status === 200) break;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  } finally {
+    if (!keepCloseHook) req.off('close', onClientClose);
+  }
+  return { ...last, status: last?.status ?? 502, trace, t0, netError: last?.netError || null };
 }
 
 async function handleChat(req, res) {
@@ -446,41 +642,27 @@ async function handleChat(req, res) {
   if (!modelId) return sendJSON(res, 400, { error: { message: 'model is required' } });
 
   const cfg = config.perModel[modelId] || {};
-  const target = cfg.upstream || null;
+  const targets = buildAttempts(modelId, cfg).map((a) => a.upstream).filter(Boolean);
   const isStream = !!body.stream;
-  const t0 = Date.now();
 
-  // 流式：单次尝试（无法在不破坏 SSE 的前提下重试），透传并在结束时回读路由元数据
-  if (isStream) {
-    const send = injectPrefs(body, modelId, cfg);
-    const acc = pickAccount();
-    const ctrl = new AbortController();
-    req.on('close', () => ctrl.abort());
-    let up;
-    try {
-      up = await fetch(`${config.upstreamBase}/chat/completions`, { method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(send), signal: ctrl.signal });
-    } catch (e) {
-      return sendJSON(res, 502, { error: { message: `upstream fetch failed: ${e.message}` } });
-    }
-    const ctype = up.headers.get('content-type') || '';
+  const chain = await runChatChain(req, body, modelId, cfg, { stream: isStream });
+
+  if (isStream && chain.streamUp) {
+    // 流式透传：先写已探测的首块，再接剩余 body；tap 在结束时回读路由元数据并记录
+    const up = chain.streamUp;
+    const acc = chain.acc;
+    const t0 = chain.t0;
+    const ctype = up.headers.get('content-type') || 'text/event-stream';
     res.writeHead(up.status, {
-      'Content-Type': ctype || 'text/event-stream',
+      'Content-Type': ctype,
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
       'Access-Control-Allow-Origin': '*',
-      'X-Cline-Target-Upstream': target || 'auto',
+      'X-Cline-Target-Upstream': targets.length ? targets.join('>') : 'auto',
+      'X-Cline-Attempts': String(chain.trace.length),
       'X-Cline-Account': headerSafe(acc.name),
     });
-    if (!ctype.includes('event-stream')) {
-      // 网关对错误返回 JSON 而非 SSE
-      const text = await up.text();
-      res.end(text);
-      let json = null; try { json = JSON.parse(text); } catch {}
-      const { routing } = unwrap(json || {});
-      if (target && json?.error) learnUpstreamStatus(modelId, target, typeof json.error === 'string' ? json.error : JSON.stringify(json.error));
-      record(modelId, { provider: routing.finalProvider || null, canonical: routing.canonicalSlug || null, ms: Date.now() - t0, stream: false, error: json?.error || null, account: acc.name });
-      return;
-    }
+    if (chain.streamHead) res.write(chain.streamHead);
     const buf = [];
     const tap = new Transform({
       transform(c, enc, cb) { buf.push(c); cb(null, c); },
@@ -504,7 +686,7 @@ async function handleChat(req, res) {
           provider = fp ? fp[1] : null;
           canonical = cs ? cs[1] : null;
         }
-        record(modelId, { provider, canonical, ms: Date.now() - t0, stream: true, error: null, account: acc.name });
+        record(modelId, { provider, canonical, ms: Date.now() - t0, stream: true, error: null, account: acc.name, attempts: chain.trace.map((t) => t.upstream || 'auto') });
         cb();
       },
     });
@@ -512,32 +694,8 @@ async function handleChat(req, res) {
     return;
   }
 
-  // 非流式：按配置决定尝试次数
-  const maxAttempts = target && cfg.maxRetries > 0 ? Math.max(1, cfg.maxRetries) : 1;
-  const tried = [];
-  let last = null;
-  let lastAcc = null;
-  for (let i = 0; i < maxAttempts; i++) {
-    const send = injectPrefs(body, modelId, cfg);
-    const acc = pickAccount();
-    lastAcc = acc;
-    let up;
-    try {
-      up = await fetch(`${config.upstreamBase}/chat/completions`, { method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(send) });
-    } catch (e) {
-      return sendJSON(res, 502, { error: { message: `upstream fetch failed: ${e.message}` } });
-    }
-    const json = await up.json().catch(() => null);
-    if (!json) return sendJSON(res, 502, { error: { message: 'upstream returned non-JSON' } });
-    const { status, body: out, routing } = unwrap(json);
-    last = { status, out, routing };
-    tried.push(routing.finalProvider || null);
-    if (status !== 200) break;
-    if (!target || routing.finalProvider === target) break;
-    if (i === maxAttempts - 1) break;
-  }
-  const { status, out, routing } = last;
-  if (target && status !== 200) learnUpstreamStatus(modelId, target, out?.error?.message || (out?.error ? JSON.stringify(out.error) : ''));
+  const { status, out, routing, acc } = chain;
+  if (!out) return sendJSON(res, 502, { error: { message: 'no upstream response', type: 'upstream_error' } });
   // 客户端实际使用成功的新订阅模型自动收录进列表
   if (status === 200 && /^cline-pass\//.test(String(modelId)) && !config.knownModels.includes(modelId)) {
     config.knownModels.push(modelId);
@@ -546,20 +704,21 @@ async function handleChat(req, res) {
   record(modelId, {
     provider: routing.finalProvider || null,
     canonical: routing.canonicalSlug || null,
-    ms: Date.now() - t0,
+    ms: Date.now() - chain.t0,
     stream: false,
-    attempts: tried,
+    attempts: chain.trace.map((t) => t.upstream || 'auto'),
+    trace: chain.trace,
     error: status !== 200 ? out?.error?.message || null : null,
-    account: lastAcc ? lastAcc.name : null,
+    account: acc ? acc.name : null,
   });
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'X-Cline-Target-Upstream': target || 'auto',
+    'X-Cline-Target-Upstream': targets.length ? targets.join('>') : 'auto',
     'X-Cline-Actual-Upstream': routing.finalProvider || 'unknown',
     'X-Cline-Canonical-Model': routing.canonicalSlug || '',
-    'X-Cline-Attempts': tried.length,
-    'X-Cline-Account': headerSafe(lastAcc ? lastAcc.name : ''),
+    'X-Cline-Attempts': String(chain.trace.length),
+    'X-Cline-Account': headerSafe(acc ? acc.name : ''),
   });
   res.end(JSON.stringify(out));
 }
@@ -612,22 +771,32 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, r.ok ? 200 : 502, r);
     }
     if (req.method === 'POST' && p === '/api/test') {
-      const { model, upstream } = await JSON.parse(await readBody(req).then((b) => b.toString()));
+      // 临时配置可带 upstreams/exclude（数组）或旧版 upstream（单值），完整走故障转移链路
+      const { model, upstream, upstreams, exclude } = await JSON.parse(await readBody(req).then((b) => b.toString()));
       if (!model) return sendJSON(res, 400, { error: 'model required' });
       const t0 = Date.now();
       const cfg = { ...(config.perModel[model] || {}) };
-      if (upstream !== undefined) cfg.upstream = upstream || null;
-      const acc = pickAccount();
-      const send = injectPrefs({ model, messages: [{ role: 'user', content: 'Reply with the word OK' }], max_tokens: 256 }, model, cfg);
-      const { json } = await fetchJSON(`${config.upstreamBase}/chat/completions`, { method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(send) }, 180000);
-      if (json?.error && !json?.data) {
-        const msg = typeof json.error === 'string' ? json.error : JSON.stringify(json.error);
-        if (cfg.upstream) learnUpstreamStatus(model, cfg.upstream, msg);
-        return sendJSON(res, 502, { ok: false, error: msg.slice(0, 400) });
+      if (upstreams !== undefined) cfg.upstreams = upstreams;
+      else if (upstream !== undefined) cfg.upstreams = upstream ? [upstream] : [];
+      if (exclude !== undefined) cfg.exclude = exclude;
+      const body = { model, messages: [{ role: 'user', content: 'Reply with the word OK' }], max_tokens: 256 };
+      const chain = await runChatChain(req, body, model, cfg, { stream: false, attemptTimeoutMs: 180000 });
+      const trace = chain.trace || [];
+      if (chain.status !== 200) {
+        return sendJSON(res, 200, {
+          ok: false, error: (chain.out?.error?.message || 'upstream error').slice?.(0, 400) || 'upstream error',
+          targets: (cfg.upstreams || []).filter(Boolean), exclude: cfg.exclude || [], trace,
+        });
       }
-      const r = parseRouting(json);
-      record(model, { provider: r.finalProvider, canonical: r.canonicalSlug, ms: Date.now() - t0, stream: false, attempts: [r.finalProvider], error: null, account: acc.name });
-      return sendJSON(res, 200, { ok: true, ms: Date.now() - t0, target: upstream || null, actual: r.finalProvider, actualName: r.finalProviderName, pipeline: r.pipeline, pinnable: r.pipeline !== null, canonicalSlug: r.canonicalSlug, fallbacks: r.fallbacks, content: (r.content || '').slice(0, 120), account: acc.name });
+      const r = parseRouting(chain.out);
+      record(model, { provider: r.finalProvider, canonical: r.canonicalSlug, ms: Date.now() - t0, stream: false, attempts: trace.map((t) => t.upstream || 'auto'), error: null, account: chain.acc?.name || null });
+      return sendJSON(res, 200, {
+        ok: true, ms: Date.now() - t0,
+        targets: (cfg.upstreams || []).filter(Boolean), exclude: cfg.exclude || [],
+        actual: r.finalProvider, actualName: r.finalProviderName, pipeline: r.pipeline, pinnable: r.pipeline !== null,
+        canonicalSlug: r.canonicalSlug, fallbacks: r.fallbacks, content: (r.content || '').slice(0, 120),
+        account: chain.acc?.name || null, trace,
+      });
     }
     if (req.method === 'GET' && p === '/api/accounts') {
       return sendJSON(res, 200, {
@@ -706,9 +875,16 @@ const server = http.createServer(async (req, res) => {
       const body = JSON.parse(await readBody(req).then((b) => b.toString()));
       if (body.perModel) {
         for (const [m, c] of Object.entries(body.perModel)) {
+          const normalize = (v) => [...new Set((Array.isArray(v) ? v : []).map((s) => String(s).trim()).filter(Boolean))].slice(0, 10);
+          let upstreams = normalize(c.upstreams);
+          const exclude = normalize(c.exclude);
+          const excl = new Set(exclude);
+          upstreams = upstreams.filter((u) => !excl.has(u)); // 同时出现以 exclude 为准
+          const upstream = upstreams[0] || null; // 旧字段兼容镜像
           config.perModel[m] = {
-            upstream: c.upstream || null,
-            maxRetries: Math.max(0, Number(c.maxRetries) || 0),
+            upstream,
+            upstreams,
+            exclude,
             pinMode: c.pinMode === 'preferred' ? 'preferred' : 'strict',
             sort: ['cost', 'ttft', 'tps'].includes(c.sort) ? c.sort : null,
           };

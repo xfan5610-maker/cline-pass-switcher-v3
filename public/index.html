@@ -48,6 +48,40 @@
   .match { color: var(--green); } .mismatch { color: var(--orange); }
   tr.row-new td { animation: newflash 4s ease-out; }
   @keyframes newflash { 0% { background: #1f3d2a; } 70% { background: #1f3d2a; } 100% { background: transparent; } }
+  /* 上游优先级/排除面板 */
+  .ups-wrap summary { list-style: none; cursor: pointer; padding: 4px 0; display: block; }
+  .ups-wrap summary::-webkit-details-marker { display: none; }
+  .ups-wrap summary::before { content: '▸ '; color: var(--dim); }
+  .ups-wrap[open] summary::before { content: '▾ '; }
+  .ups-wrap summary:hover .ups-sum { color: var(--text); }
+  .ups-panel { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 6px; max-height: min(520px, 65vh); overflow-y: auto; min-width: 430px; }
+  .uprow { display: flex; align-items: center; gap: 10px; padding: 7px 6px; font-size: 12.5px; border-bottom: 1px dashed #232733; min-height: 40px; flex-wrap: nowrap; }
+  .uprow:last-child { border-bottom: none; }
+  .uprow.excluded .upslug, .uprow.excluded .upname { opacity: .5; }
+  .upno { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--card); border: 1px solid var(--border); color: var(--accent); font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+  .upinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .upname { color: var(--dim); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upstat { flex: none; font-size: 11.5px; min-width: 52px; text-align: right; }
+  .upstat.ok { color: var(--green); } .upstat.limited { color: var(--orange); } .upstat.bad { color: var(--red); } .upstat.auth { color: var(--red); } .upstat.unknown { color: var(--dim); }
+  .upstat.excl { color: var(--red); font-weight: 600; }
+  /* 药丸切换按钮：整颗可点（约 60×30px），三态：默认灰 / 优先蓝 / 排除红 */
+  .pill { flex: none; border: 1px solid var(--border); background: transparent; color: var(--dim); border-radius: 15px; padding: 5px 14px; font-size: 12px; cursor: pointer; min-width: 56px; text-align: center; line-height: 1; }
+  .pill:hover { border-color: var(--accent); color: var(--text); }
+  .pill.prio-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pill.prio-on:hover { filter: brightness(1.15); }
+  .pill.excl-on { background: var(--red); border-color: var(--red); color: #fff; }
+  .pill.excl-on:hover { filter: brightness(1.15); }
+  button.mini { padding: 4px 9px; font-size: 12px; border-radius: 6px; min-width: 30px; }
+  .ups-tools { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .ups-sum { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 2px 0; }
+  .ups-sum .sum-auto { color: var(--dim); font-size: 12px; }
+  .ups-sum .sum-chip { background: #243447; color: #9cc3ff; border-radius: 10px; padding: 2px 9px; font-size: 11.5px; font-family: Consolas, monospace; white-space: nowrap; }
+  .ups-sum .sum-chip.sum-more { background: var(--card2); color: var(--dim); }
+  .ups-sum .sum-chip.sum-ex { background: #3d221f; color: #ff8f86; }
+  .trace { margin-top: 8px; font-size: 12.5px; word-break: break-all; }
+  .trace .tr { font-family: Consolas, monospace; }
+  .trace .tr.ok { color: var(--green); }
+  .trace .tr.bad { color: var(--orange); }
 </style>
 </head>
 <body>
@@ -62,7 +96,7 @@
   </div>
 
   <h1>Cline Pass 上游控制台</h1>
-  <div class="sub">本地代理 + 观测面板 —— 枚举订阅模型背后的上游，记录每次请求实际命中的上游，支持精确钉住 / 优先回退 / 成本·首字·吞吐排序</div>
+  <div class="sub">本地代理 + 观测面板 —— 枚举订阅模型背后的上游，多上游按优先级自动故障转移，支持精确钉住 / 优先回退 / 排除上游 / 成本·首字·吞吐排序</div>
 
   <div id="noKeyBanner" class="banner" style="display:none; border-left-color: var(--red);">
     <b>尚未配置上游 API Key：</b>在下方「账号管理」添加你的 Cline Pass 账号（sk_ 开头的 key）并保存即可开始使用；也可通过 config.json 的 accounts 或环境变量 CLINE_PASS_KEY 提供。
@@ -77,7 +111,8 @@
     规划器管道（Vercel AI Gateway）必须用 <code class="mono">providerOptions.gateway.only / order</code>——
     Cline 会丢弃顶层 <code class="mono">provider</code> 简写里的 <code class="mono">only/order</code>，但会透传 <code class="mono">providerOptions.gateway</code>。
     两类管道还都支持 <code class="mono">sort</code>（最低成本 / 最快首字 / 最高吞吐）。<br>
-    ③ <b>目录模型 :free 变体</b>：属于直连管道，可精确钉住。
+    ③ <b>目录模型 :free 变体</b>：属于直连管道，可精确钉住。<br>
+    ④ <b>多上游优先级 + 故障转移</b>：勾选多个上游即按勾选顺序逐个尝试——第一个异常（报错/网络失败/超时）自动顺切下一个，全部失败才把错误透传给客户端；「排除」的上游永不被使用（自动模式下会向网关注入排除偏好）。流式请求在首包（SSE 开始）前同样可切换，SSE 开始后透传不可重试。
   </div>
 
   <div class="toolbar">
@@ -136,7 +171,7 @@
     <div class="result" id="fetchResult" style="display:none; margin-bottom:12px;"></div>
     <table>
       <thead><tr>
-        <th>模型</th><th>背后模型</th><th>上游数</th><th>最近实际上游</th><th>上游切换 / 模式 / 排序</th><th>重试博弈</th><th>操作</th>
+        <th>模型</th><th>背后模型</th><th>上游数</th><th>最近实际上游</th><th>上游优先级 / 排除（多选）</th><th>模式 / 排序</th><th>操作</th>
       </tr></thead>
       <tbody id="subBody"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
     </table>
@@ -202,19 +237,77 @@ async function tryLogin() {
 }
 
 const ST_TAG = { ok: '✔可用', limited: '⏳限流', bad: '✘不可钉', auth: '🔑key错' };
+const ST_RANK = { ok: 0, limited: 1, unknown: 2, auth: 3, bad: 4 };
+const ST_CLS = { ok: 'ok', limited: 'limited', bad: 'bad', auth: 'auth' };
+
+// 排序后的上游 slug 列表（按校验状态：可用优先），供面板与测试台共用
+function sortedUpstreams(meta) {
+  const stMap = (meta && meta.upstreamStatus) || {};
+  return [...((meta && meta.upstreams) || [])].sort((a, b) => (ST_RANK[stMap[a]?.status] ?? 2) - (ST_RANK[stMap[b]?.status] ?? 2));
+}
+
+// 测试台仍用单选下拉（选中即作为唯一优先上游测试）
 function upstreamOptions(meta, selected) {
   let html = '<option value="">自动（不指定上游）</option>';
-  const stMap = (meta && meta.upstreamStatus) || {};
-  const detail = (meta && meta.upstreamDetail) || {};
-  const rank = { ok: 0, limited: 1, unknown: 2, auth: 3, bad: 4 };
-  const ups = [...((meta && meta.upstreams) || [])].sort((a, b) => (rank[stMap[a]?.status] ?? 2) - (rank[stMap[b]?.status] ?? 2));
-  for (const u of ups) {
+  for (const u of sortedUpstreams(meta)) {
+    const stMap = (meta && meta.upstreamStatus) || {};
+    const detail = (meta && meta.upstreamDetail) || {};
     const d = detail[u];
     const st = stMap[u]?.status;
     const tag = st && ST_TAG[st] ? ' · ' + ST_TAG[st] : '';
     const label = d ? `${u}（${d.name}${d.endpoints > 1 ? ' ×' + d.endpoints : ''}${tag}）` : `${u}${tag}`;
     html += `<option value="${u}" ${u === selected ? 'selected' : ''}>${label}</option>`;
   }
+  return html;
+}
+
+// 主表每行的上游优先级/排除面板：<details> 内逐行「优先 / 排除」药丸切换
+// 状态存在 data-* 属性上，切换时原地更新（updateRowUi），不重建 DOM
+function upstreamPanel(id, meta, cfg) {
+  const ups = sortedUpstreams(meta);
+  const stMap = (meta && meta.upstreamStatus) || {};
+  const detail = (meta && meta.upstreamDetail) || {};
+  const selected = cfg.upstreams || [];
+  const excSet = new Set(cfg.exclude || []);
+  const rows = ups.map((u) => {
+    const d = detail[u];
+    const st = stMap[u]?.status;
+    const no = selected.indexOf(u);
+    const isSel = no >= 0;
+    const isEx = excSet.has(u);
+    const stTxt = st && ST_TAG[st] ? ST_TAG[st] : '';
+    const stCls = ST_CLS[st] || 'unknown';
+    return `<div class="uprow${isEx ? ' excluded' : ''}" data-m="${id}" data-u="${u}" data-stat="${stTxt}" data-statcls="${stCls}">
+      <span class="upno" title="优先级顺序（尝试顺序）">${no >= 0 ? no + 1 : ''}</span>
+      <span class="upinfo"><span class="upslug mono">${u}</span><span class="upname" title="${d ? d.name : ''}">${d ? d.name : ''}${d && d.endpoints > 1 ? ' ×' + d.endpoints : ''}</span></span>
+      <span class="upstat ${isEx ? 'excl' : stCls}">${isEx ? '🚫已排除' : stTxt}</span>
+      <button class="pill${isSel ? ' prio-on' : ''}" title="优先：加入尝试序列（异常自动顺切下一个）；再点一次取消" onclick="toggleUp('${id}','sel','${u}',${isSel ? 'false' : 'true'})">优先</button>
+      <button class="pill${isEx ? ' excl-on' : ''}" title="排除：该上游永不被使用；再点一次取消" onclick="toggleUp('${id}','excl','${u}',${isEx ? 'false' : 'true'})">排除</button>
+      <button class="ghost mini arrow-btn" style="${isSel ? '' : 'display:none'}" onclick="moveUp('${id}','${u}')" title="上移提高优先级">↑</button>
+      <button class="ghost mini arrow-btn" style="${isSel ? '' : 'display:none'}" onclick="moveDown('${id}','${u}')" title="下移降低优先级">↓</button>
+    </div>`;
+  }).join('');
+  return `<details class="ups-wrap">
+    <summary><span class="ups-sum">${summaryChips(cfg)}</span></summary>
+    <div class="ups-panel">${rows || '<div class="empty">尚未探测到上游，先点「探测」</div>'}
+      <div class="ups-tools">
+        <button class="ghost mini" onclick="bulkUp('${id}','all')" title="全部按可用状态排序加入优先序列">全选优先</button>
+        <button class="ghost mini" onclick="bulkUp('${id}','clear')" title="清空优先与排除（回到自动）">清空</button>
+        <span class="dim" style="font-size:11px; align-self:center;">点「优先」按序尝试（异常自动顺切）；点「排除」永不使用</span>
+      </div>
+    </div>
+  </details>`;
+}
+
+// 收起状态下的汇总徽章：①fireworks ②sail-research ✕2
+function summaryChips(cfg) {
+  const ups = cfg.upstreams || [];
+  const exc = cfg.exclude || [];
+  if (!ups.length && !exc.length) return '<span class="sum-auto">自动 · 网关智能选择</span>';
+  let html = '';
+  for (let i = 0; i < Math.min(ups.length, 4); i++) html += `<span class="sum-chip">${i + 1}&nbsp;${ups[i]}</span>`;
+  if (ups.length > 4) html += `<span class="sum-chip sum-more">+${ups.length - 4}</span>`;
+  if (exc.length) html += `<span class="sum-chip sum-ex">✕ ${exc.length}</span>`;
   return html;
 }
 
@@ -229,25 +322,26 @@ function render() {
     const pipe = m?.pinnable ? `<span class="badge green">可精确钉住·${m.pipeline === 'planner' ? 'Vercel' : 'OpenRouter'}</span>` : '<span class="badge orange">请先探测</span>';
     const mode = s.config.pinMode || 'strict';
     const sort = s.config.sort || '';
-    return `<tr${LAST_ADDED.includes(s.id) ? ' class="row-new"' : ''}>
+    return `<tr${LAST_ADDED.includes(s.id) ? ' class="row-new"' : ''} data-id="${s.id}">
       <td class="mono">${s.id}<div style="margin-top:4px">${pipe}</div>${tier0}</td>
       <td>${canon}</td>
       <td>${ups === null ? '<span class="dim">—</span>' : ups}</td>
       <td>${last}${m?.lastMs ? `<div class="dim" style="font-size:11px">${m.lastMs} ms</div>` : ''}</td>
       <td>
-        <select onchange="saveCfg('${s.id}','upstream',this.value)">${upstreamOptions(m, s.config.upstream)}</select>
-        <div style="margin-top:4px"><select onchange="saveCfg('${s.id}','pinMode',this.value)" title="严格：目标上游不可用即报错；优先：先试目标上游，失败自动回退其他上游">
+        ${upstreamPanel(s.id, m, s.config)}
+      </td>
+      <td>
+        <div><select onchange="saveCfg('${s.id}','pinMode',this.value)" title="严格：逐个只钉勾选的上游；优先：当前上游排 order 首位，其余勾选项作为网关侧回退">
           <option value="strict" ${mode === 'strict' ? 'selected' : ''}>严格钉住</option>
           <option value="preferred" ${mode === 'preferred' ? 'selected' : ''}>优先+回退</option>
-        </select>
-        <select onchange="saveCfg('${s.id}','sort',this.value)" title="按指标排序上游（不选上游时也可单独使用）">
+        </select></div>
+        <select onchange="saveCfg('${s.id}','sort',this.value)" style="margin-top:4px" title="按指标排序上游（不选上游时也可单独使用）">
           <option value="" ${!sort ? 'selected' : ''}>网关智能选</option>
           <option value="cost" ${sort === 'cost' ? 'selected' : ''}>最低成本</option>
           <option value="ttft" ${sort === 'ttft' ? 'selected' : ''}>最快首字</option>
           <option value="tps" ${sort === 'tps' ? 'selected' : ''}>最高吞吐</option>
-        </select></div>
+        </select>
       </td>
-      <td><input type="number" min="0" max="20" value="${s.config.maxRetries || 0}" onchange="saveCfg('${s.id}','maxRetries',this.value)" title="非流式请求最多尝试次数；0=只发一次"></td>
       <td><div class="row-actions">
         <button class="ghost" onclick="probe('${s.id}', this)">探测</button>
         <button class="ghost" onclick="test('${s.id}', this)">测试</button>
@@ -350,10 +444,15 @@ async function probeAll() {
 
 async function test(id, btn) {
   btn.disabled = true; btn.textContent = '测试中…';
-  const sel = document.querySelector(`#subBody select[onchange^="saveCfg('${id}','upstream'"]`);
-  const r = await api('/api/test', { model: id, upstream: sel ? sel.value || null : null });
+  // 读取该行面板的当前状态（药丸按钮的选中态）
+  const tr = btn.closest('tr');
+  const sel = [...tr.querySelectorAll('.uprow')].filter((r) => r.querySelector('.pill.prio-on')).map((r) => r.dataset.u);
+  const excl = [...tr.querySelectorAll('.uprow')].filter((r) => r.querySelector('.pill.excl-on')).map((r) => r.dataset.u);
+  const body = { model: id };
+  if (sel.length || excl.length || tr.querySelector('.uprow')) { body.upstreams = sel; body.exclude = excl; }
+  const r = await api('/api/test', body);
   btn.disabled = false; btn.textContent = '测试';
-  showTest(r, id, sel ? sel.value : null);
+  showTest(r, id, sel);
 }
 
 let LAST_ADDED = [];
@@ -396,9 +495,9 @@ async function validate(id, btn) {
 async function runTest() {
   const btn = $('#testBtn'); btn.disabled = true; btn.textContent = '发送中…';
   const model = $('#testModel').value, up = $('#testUpstream').value || null;
-  const r = await api('/api/test', { model, upstream: up });
+  const r = await api('/api/test', { model, upstreams: up ? [up] : [] });
   btn.disabled = false; btn.textContent = '发送测试';
-  showTest(r, model, up);
+  showTest(r, model, up ? [up] : []);
 }
 
 function onTestModelChange() {
@@ -406,28 +505,150 @@ function onTestModelChange() {
   $('#testUpstream').innerHTML = upstreamOptions(m?.meta, null);
 }
 
-function showTest(r, model, target) {
-  const el = $('#testResult'); el.style.display = 'block';
-  if (!r.ok) { el.innerHTML = `<span class="mismatch">请求失败：${r.error}</span>`; return; }
-  const hit = !target || r.actual === target;
-  el.innerHTML = `<div class="kvs">
-      <div>模型 <b class="mono">${model}</b></div>
-      <div>目标上游 <b>${target || '自动'}</b></div>
-      <div>实际上游 <b class="${hit ? 'match' : 'mismatch'}">${r.actual || '未知'}</b></div>
-      <div>耗时 <b>${r.ms} ms</b></div>
-    </div>${hit ? '✔ 上游匹配，选择已生效。' : (r.actual ? '✘ 未命中目标上游：渠道可能限流或不可钉（点「校验」检查全部渠道）；严格模式失败会直接报错，可改用「优先+回退」。' : '该模型响应未携带上游信息，无法回读实际上游。')}
-    <div class="dim" style="margin-top:6px">回复：${r.content || '(空)'}　·　背后模型：${r.canonicalSlug || '—'}　·　管道：${r.pipeline === 'direct' ? '直连(OpenRouter)' : r.pipeline === 'planner' ? '规划器(Vercel)' : '未知'}</div>`;
+// 逐次尝试明细：fireworks(✗429 781ms) → sail-research(✔ 2458ms)
+function traceHtml(trace) {
+  if (!trace?.length) return '';
+  const parts = trace.map((t) => `<span class="tr ${t.status === 200 ? 'ok' : 'bad'}">${t.upstream || 'auto'}(${t.status === 200 ? '✔' : '✗' + t.status} ${t.ms}ms${t.note && t.status !== 200 && t.note !== 'ok' ? ' · ' + escapeHtml(String(t.note).slice(0, 60)) : ''})</span>`);
+  return `<div class="trace">尝试序列：${parts.join(' → ')}</div>`;
 }
 
+function showTest(r, model, target) {
+  const el = $('#testResult'); el.style.display = 'block';
+  const targets = Array.isArray(target) ? target : target ? [target] : [];
+  if (!r.ok) {
+    el.innerHTML = `<span class="mismatch">请求失败：${escapeHtml(r.error || '')}</span>${traceHtml(r.trace)}`;
+    return;
+  }
+  const hit = !targets.length || r.actual === targets[0];
+  const hitExcluded = Array.isArray(r.exclude) && r.exclude.length && r.exclude.includes(r.actual);
+  el.innerHTML = `<div class="kvs">
+      <div>模型 <b class="mono">${model}</b></div>
+      <div>目标上游 <b>${targets.length ? targets.join(' → ') : '自动'}</b></div>
+      <div>实际上游 <b class="${hit && !hitExcluded ? 'match' : 'mismatch'}">${r.actual || '未知'}</b></div>
+      <div>耗时 <b>${r.ms} ms</b></div>
+    </div>${traceHtml(r.trace)}
+    ${hitExcluded ? `<div class="mismatch">⚠ 排除未生效：命中了被排除的上游 ${r.actual}（该渠道可能不在本地已知清单内，或网关未遵守白名单；先点「探测」刷新渠道列表再试）</div>` : hit ? '✔ 上游匹配，选择已生效。' : (r.actual ? '✘ 未命中首个目标上游：渠道可能限流或不可钉（点「校验」检查全部渠道）；严格模式失败会直接报错，可改用「优先+回退」。' : '该模型响应未携带上游信息，无法回读实际上游。')}
+    <div class="dim" style="margin-top:6px">回复：${escapeHtml(r.content || '(空)')}　·　背后模型：${r.canonicalSlug || '—'}　·　管道：${r.pipeline === 'direct' ? '直连(OpenRouter)' : r.pipeline === 'planner' ? '规划器(Vercel)' : '未知'}</div>`;
+}
+
+// —— perModel 配置保存：POST 完整字段（upstreams + exclude 一起），UI 由调用方乐观更新 ——
+async function saveModelCfg(id, patch) {
+  const s = DATA.subscription.find((x) => x.id === id);
+  if (!s) return;
+  const cfg = s.config;
+  const full = {
+    upstreams: patch.upstreams !== undefined ? patch.upstreams : (cfg.upstreams || []),
+    exclude: patch.exclude !== undefined ? patch.exclude : (cfg.exclude || []),
+    pinMode: patch.pinMode !== undefined ? patch.pinMode : (cfg.pinMode || 'strict'),
+    sort: patch.sort !== undefined ? patch.sort : (cfg.sort || null),
+  };
+  try {
+    const r = await api('/api/config', { perModel: { [id]: full } });
+    if (r.ok) {
+      cfg.upstreams = full.upstreams; cfg.exclude = full.exclude; cfg.pinMode = full.pinMode; cfg.sort = full.sort;
+      status(`${id} 配置已保存`);
+    } else {
+      status(`${id} 保存失败：${r.error?.message || '未知错误'}`);
+      await loadAll();
+    }
+  } catch {
+    await loadAll();
+  }
+}
+
+// 下拉框保存入口（模式/排序）
 async function saveCfg(id, field, value) {
-  const cfg = DATA.subscription.find((s) => s.id === id).config;
-  const patch = { upstream: cfg.upstream || null, maxRetries: cfg.maxRetries || 0, pinMode: cfg.pinMode || 'strict', sort: cfg.sort || null };
-  if (field === 'upstream') patch.upstream = value || null;
-  else if (field === 'pinMode') patch.pinMode = value || 'strict';
+  const patch = {};
+  if (field === 'pinMode') patch.pinMode = value || 'strict';
   else if (field === 'sort') patch.sort = value || null;
-  else if (field === 'maxRetries') patch.maxRetries = parseInt(value) || 0;
-  await api('/api/config', { perModel: { [id]: patch } });
-  status(`${id} 配置已保存`);
+  await saveModelCfg(id, patch);
+}
+
+// 面板行内更新：只改 class / 文本 / onclick，绝不重建 DOM —— 面板保持展开、滚动位置不变
+function updateRowUi(id) {
+  const s = DATA.subscription.find((x) => x.id === id);
+  if (!s) return;
+  const cfg = s.config;
+  const selected = cfg.upstreams || [];
+  const excSet = new Set(cfg.exclude || []);
+  const tr = document.querySelector(`#subBody tr[data-id="${id}"]`);
+  if (!tr) return render();
+  tr.querySelectorAll('.uprow').forEach((row) => {
+    const u = row.dataset.u;
+    const no = selected.indexOf(u);
+    const isEx = excSet.has(u);
+    const pills = row.querySelectorAll('.pill');
+    if (pills[0]) {
+      pills[0].classList.toggle('prio-on', no >= 0);
+      pills[0].setAttribute('onclick', `toggleUp('${id}','sel','${u}',${no >= 0 ? 'false' : 'true'})`);
+    }
+    if (pills[1]) {
+      pills[1].classList.toggle('excl-on', isEx);
+      pills[1].setAttribute('onclick', `toggleUp('${id}','excl','${u}',${isEx ? 'false' : 'true'})`);
+    }
+    row.classList.toggle('excluded', isEx);
+    row.querySelector('.upno').textContent = no >= 0 ? String(no + 1) : '';
+    row.querySelectorAll('.arrow-btn').forEach((b) => { b.style.display = no >= 0 ? '' : 'none'; });
+    const stat = row.querySelector('.upstat');
+    if (isEx) { stat.textContent = '🚫已排除'; stat.className = 'upstat excl'; }
+    else { stat.textContent = row.dataset.stat || ''; stat.className = 'upstat ' + (row.dataset.statcls || 'unknown'); }
+  });
+  const sum = tr.querySelector('.ups-sum');
+  if (sum) sum.innerHTML = summaryChips(cfg);
+  const selects = tr.cells[5].querySelectorAll('select');
+  if (selects[0]) selects[0].value = cfg.pinMode || 'strict';
+  if (selects[1]) selects[1].value = cfg.sort || '';
+}
+
+// 面板药丸切换：kind='sel' 优先 | 'excl' 排除（互斥）。乐观更新 + 保存（失败自动回滚）
+function toggleUp(id, kind, u, on) {
+  const s = DATA.subscription.find((x) => x.id === id);
+  if (!s) return;
+  const cfg = s.config;
+  let ups = [...(cfg.upstreams || [])];
+  let exc = [...(cfg.exclude || [])];
+  if (kind === 'sel') {
+    if (on) { if (!ups.includes(u)) ups.push(u); exc = exc.filter((x) => x !== u); }
+    else ups = ups.filter((x) => x !== u);
+  } else {
+    if (on) { if (!exc.includes(u)) exc.push(u); ups = ups.filter((x) => x !== u); }
+    else exc = exc.filter((x) => x !== u);
+  }
+  cfg.upstreams = ups; cfg.exclude = exc;
+  updateRowUi(id);
+  saveModelCfg(id, { upstreams: ups, exclude: exc });
+}
+
+// 调整优先顺序（乐观更新 + 保存）
+function moveUpDown(id, u, dir) {
+  const s = DATA.subscription.find((x) => x.id === id);
+  if (!s) return;
+  const ups = [...(s.config.upstreams || [])];
+  const i = ups.indexOf(u);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= ups.length) return;
+  [ups[i], ups[j]] = [ups[j], ups[i]];
+  s.config.upstreams = ups;
+  updateRowUi(id);
+  saveModelCfg(id, { upstreams: ups });
+}
+const moveUp = (id, u) => moveUpDown(id, u, -1);
+const moveDown = (id, u) => moveUpDown(id, u, 1);
+
+// 批量：'all'=按可用状态排序全部加入优先；'clear'=清空优先与排除（回到自动）
+function bulkUp(id, action) {
+  const s = DATA.subscription.find((x) => x.id === id);
+  if (!s) return;
+  if (action === 'all') {
+    const ups = sortedUpstreams(s.meta).filter((u) => !(s.config.exclude || []).includes(u));
+    s.config.upstreams = ups;
+    updateRowUi(id);
+    saveModelCfg(id, { upstreams: ups });
+  } else {
+    s.config.upstreams = []; s.config.exclude = [];
+    updateRowUi(id);
+    saveModelCfg(id, { upstreams: [], exclude: [] });
+  }
 }
 
 async function loadHistory() {
@@ -439,7 +660,7 @@ async function loadHistory() {
       <td class="mono dim">${h.canonical || '—'}</td>
       <td>${h.ms ?? '—'} ms</td>
       <td>${h.stream ? '流式' : '非流式'}</td>
-      <td class="dim">${(h.attempts || []).join(' → ') || '—'}</td>
+      <td class="dim">${(h.trace || h.attempts || []).map((t) => typeof t === 'string' ? t : `${t.upstream || 'auto'}(${t.status === 200 ? '✔' : '✗'}${t.ms}ms)`).join(' → ') || '—'}</td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty">暂无记录 —— 把客户端 Base URL 指向代理地址即可自动记录</td></tr>';
 }
 
