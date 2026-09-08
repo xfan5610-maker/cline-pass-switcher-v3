@@ -1,5 +1,18 @@
 # Cline Pass 上游控制台（cline-pass-switcher）
 
+本仓库基于 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher) 维护独立的 **V2**：入口为 `server-v2.js`，页面为 `public/index-v2.html`，原版 `server.js` 与 `public/index.html` 保留。
+
+## V2 功能
+
+- **自定义上游**：测试台可填写上游 slug，严格指定该渠道发送测试；错误中的上游名称高亮，点击即可加入对应模型的监查列表。
+- **持久管理**：支持逐项删除上游，同步清理优先、排除及指标缓存；重启和再次探测不会自动加回，手动收录可恢复。
+- **指标与排名**：探测后按实际管道分别读取 Vercel 或 OpenRouter 的价格、首字延迟和吞吐数据。列表支持最低成本、最快首字、最高吞吐排序，标注数值、单位、来源和采集时间。
+- **简洁显示**：缺失数据静默隐藏，列表排名编号保留；无指标时按发现顺序排列。展示排名与手动请求优先级分别显示。
+- **折叠摘要**：跟随当前排序策略，展示最近探测命中的上游，同时保留手动优先与排除信息。
+- **DeepSeek Flash**：订阅入口预置 16 个上游，目录模型入口预置 29 个；具体渠道是否可用以实际探测和测试为准。
+
+详细操作、指标口径与持久化规则见 [V2 使用说明](docs/v2.md)。
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-green)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED)
@@ -22,13 +35,22 @@
 ## 30 秒上手（本地）
 
 ```bash
-git clone https://github.com/<你的用户名>/cline-pass-switcher.git
+git clone https://github.com/liqiming-whu/cline-pass-switcher.git
 cd cline-pass-switcher
-node server.js        # 仅需 Node ≥ 18，无需 npm install
+node server-v2.js     # 仅需 Node ≥ 18，无需 npm install
 ```
 
 打开 <http://127.0.0.1:3123/>，在「账号管理」里添加你的 Cline Pass 账号（`sk_` 开头的 key）并保存即可。
 没有 key 也能启动：页面会提示配置入口。
+
+原版仍可通过 `node server.js` 启动。两版默认使用同一端口及 `config.json`、`metadata.json`；切换时先停止当前进程。需要隔离配置时，分别设置 `DATA_DIR` 和 `PORT`。
+
+本地验证 V2（隔离配置及模拟上游响应，不发送真实推理请求）：
+
+```bash
+node --check server-v2.js
+node --test tests/server-v2.test.cjs
+```
 
 > Cline Pass key 从哪里来？购买 Cline Pass 订阅后，在 Cline 的账户设置里创建 API Key。
 > 订阅模型 ID 均为 `cline-pass/*` 前缀（如 `cline-pass/glm-5.2`）。
@@ -44,6 +66,8 @@ Model:    cline-pass/glm-5.2 等
 ---
 
 ## Docker 部署
+
+以下现有 Docker 配置启动原版 `server.js`；使用 V2 请按上面的 Node.js 方式启动。
 
 ### 方式 A：All-in-one（自带 Caddy 自动 HTTPS，推荐新手）
 
@@ -99,7 +123,7 @@ location / {
 | `publicBaseUrl` | 公网代理地址（控制台展示用） |
 | `exposeCatalog` | `true` 时代理的 `/v1/models` 会合并 Cline 公开目录模型；默认 `false` 只返回订阅模型（避免客户端模型列表被淹没） |
 | `knownModels` | 订阅模型清单（控制台主表） |
-| `perModel` | 每模型的钉住配置：`{ upstream, pinMode: strict|preferred, sort: cost|ttft|tps, maxRetries }` |
+| `perModel` | 每模型的钉住配置：`{ upstreams: [], exclude: [], pinMode: strict|preferred, sort: cost|ttft|tps }`；`upstream` 为首个优先上游的兼容镜像 |
 | `apiKey` | 旧版单 key 字段，启动时自动迁移进 `accounts` |
 
 ---
@@ -189,7 +213,7 @@ Cline Pass 订阅模型在 Cline 网关之后分成两条管道，钉住上游�
 
 - `config.json` / `data/` 含明文密钥，已在 `.gitignore` 排除，**不要提交或分享**；
 - 对外部署务必设置 `proxyKey`（控制台可随时轮换）；
-- 「重试博弈」`maxRetries > 0` 时会放大请求量，注意额度消耗。
+- 多上游故障转移会逐个尝试已选择的渠道，注意请求量和额度消耗。
 
 ## License
 
