@@ -247,11 +247,22 @@ function endpointMetrics(endpoints, source) {
     if (!validUpstream(slug)) continue;
     const d = detail.get(slug) || { slug, name: e.provider_name || slug, endpoints: 0, context: 0,
       source, fetchedAt: Date.now(), window: source === 'Vercel' ? '1h' : '30m',
-      input: null, output: null, cost: null, ttft: null, tps: null };
+      input: null, output: null, cost: null, ttft: null, tps: null, offers: [] };
     d.endpoints++;
     d.context = Math.max(d.context, metricNumber(e.context_length) || 0);
     const input = metricNumber(e.pricing?.prompt);
     const output = metricNumber(e.pricing?.completion);
+    const percentage = (value) => { const n = metricNumber(value); return n !== null && n <= 100 ? n : null; };
+    const cacheRead = metricNumber(e.pricing?.input_cache_read);
+    d.offers.push({
+      endpoint: String(e.tag || e.name || slug),
+      input: input === null ? null : input * 1e6,
+      output: output === null ? null : output * 1e6,
+      cacheRead: cacheRead === null ? null : cacheRead * 1e6,
+      shortWindow: source === 'Vercel' ? '15m' : '5m',
+      uptimeShort: percentage(source === 'Vercel' ? e.uptime_last_15m : e.uptime_last_5m),
+      uptimeDay: percentage(e.uptime_last_1d),
+    });
     // 成本按输入输出 1:1 的基础报价比较；两项必须来自同一个 endpoint。
     if (input !== null && output !== null && (d.cost === null || (input + output) * 1e6 < d.cost)) {
       d.input = input * 1e6;
@@ -828,6 +839,122 @@ async function handleChat(req, res) {
 }
 
 // ---------- HTTP 服务 ----------
+// 测速单独读取流，不走故障转移，避免把多家供应商的时间混算。
+async function measureStream(response, startedAt) {
+  if (!response.body || !/text\/event-stream/i.test(response.headers.get('content-type') || '')) {
+    const error = await response.text();
+    throw new Error(`上游未返回事件流：${error.slice(0, 500)}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '', dataLines = [], firstPacket = null, firstGenerated = null, lastGenerated = null;
+  let completedAt = null, done = false, usage = null, preview = '', size = 0;
+  let routing = {};
+  function event() {
+    if (!dataLines.length) return;
+    const data = dataLines.join('\n');
+    dataLines = [];
+    if (data.trim() === '[DONE]') { done = true; completedAt = performance.now(); return; }
+    let chunk;
+    try { chunk = JSON.parse(data); } catch { throw new Error('上游事件流包含无效 JSON'); }
+    const d = chunk?.data && typeof chunk.data === 'object' ? chunk.data : chunk;
+    if (d?.error) throw new Error(errText(d.error?.message || d.error).slice(0, 1000));
+    if (d?.usage) usage = d.usage;
+    const delta = d?.choices?.[0]?.delta || {};
+    const r = parseRouting(d || {});
+    const deltaRouting = parseRouting({ choices: [{ message: delta }] });
+    for (const info of [r, deltaRouting]) {
+      for (const key of ['pipeline', 'canonicalSlug', 'finalProvider']) if (info[key]) routing[key] = info[key];
+    }
+    const text = typeof delta.content === 'string' ? delta.content : '';
+    const reasoning = [delta.reasoning, delta.reasoning_content, ...(Array.isArray(delta.reasoning_details) ? delta.reasoning_details : []).map((item) => item?.text)]
+      .some((value) => typeof value === 'string' && value.length > 0);
+    if (text || reasoning) {
+      const now = performance.now();
+      firstGenerated ??= now;
+      lastGenerated = now;
+      preview = (preview + text).slice(0, 1200);
+    }
+    if (d?.choices?.some((choice) => choice.finish_reason === 'error')) throw new Error('上游生成失败');
+  }
+  function lines(flush = false) {
+    let end;
+    while (!done && (end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end).replace(/\r$/, '');
+      buffer = buffer.slice(end + 1);
+      if (!line) event();
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+    }
+    if (flush && !done) {
+      if (buffer.startsWith('data:')) dataLines.push(buffer.slice(5).replace(/^ /, '').replace(/\r$/, ''));
+      buffer = '';
+      event();
+    }
+  }
+  try {
+    while (!done) {
+      const part = await reader.read();
+      if (part.done) { buffer += decoder.decode(); lines(true); break; }
+      if (!part.value.length) continue;
+      firstPacket ??= performance.now();
+      size += part.value.length;
+      if (size > 2 * 1024 * 1024) throw new Error('测速响应超出大小限制');
+      buffer += decoder.decode(part.value, { stream: true });
+      lines();
+    }
+    completedAt ??= performance.now();
+    if (!done) throw new Error('上游流提前断开，测速未完成');
+    if (firstGenerated === null) throw new Error('上游未返回生成内容');
+    const reportedTokens = metricNumber(usage?.completion_tokens);
+    const tokens = Number.isInteger(reportedTokens) && reportedTokens > 0 ? reportedTokens : null;
+    const generatedMs = lastGenerated - firstGenerated;
+    const totalMs = completedAt - startedAt;
+    return {
+      firstPacketMs: firstPacket === null ? null : firstPacket - startedAt,
+      generationSpeed: tokens !== null && generatedMs > 0 ? tokens * 1000 / generatedMs : null,
+      perceivedSpeed: tokens !== null && totalMs > 0 ? tokens * 1000 / totalMs : null,
+      completionTokens: tokens, totalMs, preview, ...routing,
+    };
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+async function speedTest(model, upstream, signal) {
+  const acc = pickAccount();
+  if (!acc.key) throw new Error('请先配置上游账号');
+  const body = injectPrefs({ model, stream: true, stream_options: { include_usage: true }, max_tokens: 1024,
+    messages: [{ role: 'user', content: '直接用中文写一篇约600字的科普短文，介绍雨滴的形成过程，不要列提纲。' }],
+  }, model, { upstream, strict: true });
+  const startedAt = performance.now();
+  const response = await fetch(`${config.upstreamBase}/chat/completions`, {
+    method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(body), signal,
+  });
+  if (!response.ok) throw new Error(`上游 HTTP ${response.status}：${(await response.text()).slice(0, 500)}`);
+  const measured = await measureStream(response, startedAt);
+  const actual = measured.finalProvider || null;
+  let detail = null;
+  // 只展示本次响应确认的网关和供应商数据；查询时间不计入测速。
+  if (actual && measured.pipeline && measured.canonicalSlug) {
+    try {
+      const source = measured.pipeline === 'planner' ? 'Vercel' : 'OpenRouter';
+      const base = source === 'Vercel' ? 'https://ai-gateway.vercel.sh/v1' : OR_API;
+      const modelPath = measured.canonicalSlug.split('/').map(encodeURIComponent).join('/');
+      const res = await fetch(`${base}/models/${modelPath}/endpoints`, { signal });
+      if (res.ok) {
+        const json = await res.json();
+        const endpoints = Array.isArray(json?.data?.endpoints) ? endpointMetrics(json.data.endpoints, source) : [];
+        detail = endpoints.find((d) => norm(d.slug) === norm(actual) || norm(d.name) === norm(actual)) || null;
+      }
+    } catch (e) { if (signal?.aborted) throw e; /* 公共指标不可用时只展示本次实测 */ }
+  }
+  const matched = actual ? norm(actual) === norm(upstream) || (detail && norm(detail.slug) === norm(upstream)) : null;
+  if (!matched) return { ok: false, error: actual ? `网关实际使用 ${actual}，与指定供应商 ${upstream} 不符，本次测速无效` : '响应未确认实际供应商，本次测速无效' };
+  return { ok: true, model, upstream, actual, matched: matched === null ? null : !!matched,
+    ...measured, detail, testedAt: Date.now() };
+}
+
 function sendJSON(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
   res.end(JSON.stringify(obj));
@@ -873,6 +1000,26 @@ const server = http.createServer(async (req, res) => {
       if (!model) return sendJSON(res, 400, { error: 'model required' });
       const r = await probeModel(model);
       return sendJSON(res, r.ok ? 200 : 502, r);
+    }
+    if (req.method === 'POST' && p === '/api/speed-test') {
+      const { model, upstream } = JSON.parse(await readBody(req).then((b) => b.toString()));
+      if (typeof model !== 'string' || !Object.hasOwn(META.models, model) || !validUpstream(upstream)
+        || !META.models[model]?.upstreams?.includes(upstream)) {
+        return sendJSON(res, 400, { ok: false, error: '请选择模型及其列表中的供应商；没有供应商时先探测或手动收录' });
+      }
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 120000);
+      const onClose = () => { if (!res.writableEnded) ctrl.abort(); };
+      res.on?.('close', onClose);
+      try {
+        const result = await speedTest(model, upstream, ctrl.signal);
+        return sendJSON(res, 200, result);
+      } catch (e) {
+        return sendJSON(res, 502, { ok: false, error: ctrl.signal.aborted ? '测速超时或连接已断开' : e.message });
+      } finally {
+        clearTimeout(timer);
+        res.off?.('close', onClose);
+      }
     }
     if (req.method === 'POST' && p === '/api/test') {
       // 临时配置可带 upstreams/exclude（数组）或旧版 upstream（单值），完整走故障转移链路

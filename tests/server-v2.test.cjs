@@ -12,25 +12,28 @@ const model = 'cline-pass/deepseek-v4-flash';
 
 function backend(saved = {}) {
   const files = new Map(Object.entries(saved));
+  const responseListeners = new Map();
   let handler;
   const context = vm.createContext({
     fs: { readFileSync(file) { if (!files.has(path.basename(file))) throw new Error('absent'); return files.get(path.basename(file)); },
       writeFileSync(file, content) { files.set(path.basename(file), content); } },
     path, process: { env: {} }, console: { log() {}, warn() {} },
     http: { createServer(fn) { handler = fn; return { on() {}, listen() {} }; } },
-    setTimeout, clearTimeout, AbortController, URL, Buffer,
+    setTimeout, clearTimeout, AbortController, URL, Buffer, TextDecoder, performance,
     fetch() { throw new Error('Unexpected network request'); },
   });
   vm.runInContext(source.replace(/^import .*;\r?\n/gm, '')
     .replace('const __dirname = path.dirname(fileURLToPath(import.meta.url));', "const __dirname = '.';"), context);
   return {
     files, context,
+    disconnect: () => responseListeners.get('close')?.(),
     run: (code) => vm.runInContext(code, context),
     async post(url, body, headers = {}) {
       const req = Readable.from([Buffer.from(JSON.stringify(body))]);
       Object.assign(req, { url, method: 'POST', headers });
       let status, result;
-      await handler(req, { writeHead(code) { status = code; }, end(text) { result = JSON.parse(text); } });
+      await handler(req, { on(name, listener) { responseListeners.set(name, listener); }, off(name) { responseListeners.delete(name); },
+        writeHead(code) { status = code; }, end(text) { result = JSON.parse(text); } });
       return { status, body: result };
     },
   };
@@ -226,4 +229,195 @@ test('UI: delete updates the matching model and hides missing metric markup', as
   assert.equal(ui.run('rendered'), true);
   assert.equal(ui.run('button.disabled'), false);
   assert.equal(ui.result.open, true);
+});
+
+function streamFixture(app) {
+  app.run(`var clock = 0, cancelled = false, released = false;
+    performance = {now:()=>clock};
+    function fixtureResponse(parts) {
+      let index = 0;
+      return {ok:true,headers:{get:()=> 'text/event-stream; charset=utf-8'},body:{getReader:()=>({
+        async read() { if(index===parts.length) return {done:true}; const part=parts[index++]; clock=part.at; return {done:false,value:Buffer.isBuffer(part.text)?part.text:Buffer.from(part.text)}; },
+        async cancel() {cancelled=true;}, releaseLock() {released=true;}
+      })}};
+    }
+    function frame(data) {return 'data: '+JSON.stringify(data)+'\\r\\n\\r\\n';}
+    var parts = [
+      {at:100,text:': heartbeat\\r\\n\\r\\n'},
+      {at:400,text:frame({choices:[{delta:{reasoning:'推理'}}]})},
+      {at:1400,text:frame({choices:[{delta:{content:'雨滴',reasoning_details:{unexpected:true}},finish_reason:'stop'}]})},
+      {at:1600,text:frame({choices:[],usage:{completion_tokens:100,completion_tokens_details:{reasoning_tokens:20}},provider:'deepinfra',model:'deepseek/deepseek-v4-flash'})+'data: [DONE]\\r\\n\\r\\n'}
+    ];`);
+}
+
+test('speed: monotonic timings, reasoning, usage and fragmented UTF-8 SSE', async () => {
+  const app = backend(); streamFixture(app);
+  app.run(`var bytes=Buffer.from(parts[2].text), splitAt=bytes.indexOf(Buffer.from('雨'))+1;
+    parts.splice(2,1,{at:1300,text:bytes.subarray(0,splitAt)},{at:1400,text:bytes.subarray(splitAt)});`);
+  const result = await app.run('measureStream(fixtureResponse(parts),0)');
+  assert.equal(result.firstPacketMs, 100);
+  assert.equal(result.generationSpeed, 100);
+  assert.equal(result.perceivedSpeed, 62.5);
+  assert.equal(result.preview, '雨滴');
+  assert.equal(result.finalProvider, 'deepinfra');
+  assert.equal(app.run('cancelled && released'), true);
+});
+
+test('speed: missing or invalid token counts are hidden, single chunk has no generation rate', async () => {
+  for (const count of [null, -1, 'invalid', 0, 1.5]) {
+    const app = backend(); streamFixture(app);
+    app.run(`parts[3].text=frame({usage:{completion_tokens:${JSON.stringify(count)}}})+'data: [DONE]\\n\\n';`);
+    const result = await app.run('measureStream(fixtureResponse(parts),0)');
+    assert.equal(result.generationSpeed, null);
+    assert.equal(result.perceivedSpeed, null);
+    assert.equal(result.firstPacketMs, 100);
+  }
+  const app = backend(); streamFixture(app);
+  app.run('parts.splice(1,1)');
+  assert.equal((await app.run('measureStream(fixtureResponse(parts),0)')).generationSpeed, null);
+});
+
+test('speed: rejects incomplete streams, stream errors, malformed JSON and empty output', async () => {
+  for (const change of [
+    'parts.pop()',
+    `parts=[{at:100,text:'data: {bad}\\n\\n'}]`,
+    `parts=[{at:100,text:frame({error:{message:'rate limited'}})}]`,
+    `parts=[{at:100,text:'data: [DONE]\\n\\n'}]`,
+  ]) {
+    const app = backend(); streamFixture(app); app.run(change);
+    await assert.rejects(app.run('measureStream(fixtureResponse(parts),0)'));
+    assert.equal(app.run('cancelled && released'), true);
+  }
+});
+
+test('speed API: strict supplier, correct public source, prices and uptime windows', async () => {
+  for (const pipeline of ['planner', 'direct']) {
+    const app = backend(); streamFixture(app);
+    app.run(`config.apiKey='test-only'; META.models['${model}'].pipeline='${pipeline}'; var calls=[];
+      fetch = async (url,opts) => {
+        calls.push(url);
+        if(url.endsWith('/chat/completions')) {
+          const body=JSON.parse(opts.body);
+          if(body.max_tokens!==1024 || !body.stream_options.include_usage || !opts.signal) throw new Error('Invalid speed request');
+          const only=${pipeline === 'planner' ? 'body.providerOptions.gateway.only' : 'body.provider.only'};
+          if(only.join()!=='deepinfra') throw new Error('Supplier not pinned');
+          ${pipeline === 'planner' ? `parts[3].text=frame({usage:{completion_tokens:100},provider_metadata:{gateway:{routing:{finalProvider:'deepinfra',canonicalSlug:'deepseek/deepseek-v4-flash'}}}})+'data: [DONE]\\n\\n';` : ''}
+          return fixtureResponse(parts);
+        }
+        if(!url.startsWith('${pipeline === 'planner' ? 'https://ai-gateway.vercel.sh' : 'https://openrouter.ai'}')) throw new Error('Wrong metrics source');
+        return {ok:true,json:async()=>({data:{endpoints:[{provider_name:'deepinfra',tag:'deepinfra',pricing:{prompt:'0.000001',completion:'0.000002',input_cache_read:'0'},uptime_last_5m:91,uptime_last_15m:92,uptime_last_1d:99}]}})};
+      };`);
+    const response = await app.post('/api/speed-test', { model, upstream:'deepinfra' });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+    assert.equal(response.body.matched, true);
+    const offer = response.body.detail.offers[0];
+    assert.deepEqual([offer.input,offer.output,offer.cacheRead,offer.uptimeDay], [1,2,0,99]);
+    assert.equal(offer.shortWindow, pipeline === 'planner' ? '15m' : '5m');
+    assert.equal(offer.uptimeShort, pipeline === 'planner' ? 92 : 91);
+    assert.equal(response.body.totalMs, 1600);
+    assert.equal(app.run('calls.length'), 2);
+  }
+});
+
+test('speed: unknown suppliers, wrong actual supplier and missing attribution are rejected', async () => {
+  const app = backend();
+  assert.equal((await app.post('/api/speed-test',{model,upstream:'missing'})).status,400);
+  assert.equal((await app.post('/api/speed-test',{model:'__proto__',upstream:'deepinfra'})).status,400);
+  const locked = backend({'config.json':JSON.stringify({proxyKey:'key'})});
+  assert.equal((await locked.post('/api/speed-test',{model,upstream:'deepinfra'})).status,401);
+  for (const actual of [null, 'other']) {
+    const fixture = backend(); streamFixture(fixture);
+    fixture.run(`config.apiKey='test-only'; parts[3].text=frame({usage:{completion_tokens:100},provider:${JSON.stringify(actual)}})+'data: [DONE]\\n\\n';
+      fetch=async()=>fixtureResponse(parts);`);
+    const response = await fixture.post('/api/speed-test',{model,upstream:'deepinfra'});
+    assert.equal(response.body.ok, false);
+    assert.equal(response.body.generationSpeed, undefined);
+  }
+});
+
+test('speed UI: source-specific availability, zero cache price and silent missing data', () => {
+  for (const source of ['Vercel','OpenRouter']) {
+    const ui=frontend();
+    ui.run(`SPEED_RESULTS=[{ok:true,model:'${model}',upstream:'deepinfra',actual:'deepinfra',matched:true,totalMs:1600,firstPacketMs:100,generationSpeed:100,perceivedSpeed:62.5,completionTokens:100,testedAt:1,preview:'<img>',detail:{source:'${source}',fetchedAt:1,offers:[{endpoint:'deepinfra',input:1,output:2,cacheRead:0,uptimeShort:99,uptimeDay:100}]}}]; renderSpeedTable()`);
+    assert.ok(ui.result.innerHTML.includes(source==='Vercel'?'可用(15m)':'可用(5m)'));
+    assert.ok(ui.result.innerHTML.includes('可用(1d)'));
+    assert.ok(ui.result.innerHTML.includes('缓存读'));
+    assert.ok(ui.result.innerHTML.includes('$0'));
+    assert.ok(ui.result.innerHTML.includes('&lt;img&gt;'));
+    ui.run(`SPEED_RESULTS=[{ok:true,model:'${model}',upstream:'deepinfra',actual:'deepinfra',matched:true,totalMs:1600,firstPacketMs:100,generationSpeed:null,perceivedSpeed:null,testedAt:1,detail:null}]; renderSpeedTable()`);
+    assert.ok(!ui.result.innerHTML.includes('生成速度'));
+    assert.ok(!ui.result.innerHTML.includes('可用('));
+  }
+});
+
+test('speed API: client disconnect aborts the upstream request', async () => {
+  const app = backend();
+  app.context.disconnectResponse = app.disconnect;
+  app.run(`config.apiKey='test-only'; var wasAborted=false;
+    fetch=async(url,opts)=>{disconnectResponse(); wasAborted=opts.signal.aborted; throw new Error('Disconnected');};`);
+  const response = await app.post('/api/speed-test',{model,upstream:'deepinfra'});
+  assert.equal(response.status,502);
+  assert.equal(app.run('wasAborted'),true);
+  assert.match(response.body.error,/连接已断开/);
+});
+
+test('speed API: bounded timeout aborts the request and reports failure', async () => {
+  const app = backend();
+  app.run(`config.apiKey='test-only'; var capturedMs=0, forceTimeout, wasAborted=false;
+    setTimeout=(fn,ms)=>{capturedMs=ms;forceTimeout=fn;return 1;}; clearTimeout=()=>{};
+    fetch=async(url,opts)=>{forceTimeout();wasAborted=opts.signal.aborted;throw new Error('Timeout');};`);
+  const response = await app.post('/api/speed-test',{model,upstream:'deepinfra'});
+  assert.equal(response.status,502);
+  assert.equal(app.run('capturedMs'),120000);
+  assert.equal(app.run('wasAborted'),true);
+  assert.match(response.body.error,/超时/);
+});
+
+test('batch speed UI: numeric sorting, missing last, separate windows and stable ties', () => {
+  const ui = frontend();
+  ui.run(`SPEED_RESULTS = [
+    {ok:true,upstream:'slow',generationSpeed:10,firstPacketMs:20,detail:{source:'OpenRouter',offers:[{input:0,uptimeShort:95,uptimeDay:99}]}},
+    {ok:false,upstream:'failed',state:'失败',error:'<bad>'},
+    {ok:true,upstream:'fast',generationSpeed:100,firstPacketMs:200,detail:{source:'Vercel',offers:[{input:3,uptimeShort:99,uptimeDay:100}]}},
+    {ok:true,upstream:'tie',generationSpeed:100,firstPacketMs:30}
+  ];`);
+  for (const [key, order] of [['generationSpeed','fast,tie,slow,failed'],['firstPacketMs','slow,tie,fast,failed'],['input','fast,slow,failed,tie'],['uptime5m','slow,failed,fast,tie'],['uptime15m','fast,slow,failed,tie'],['uptimeDay','fast,slow,failed,tie']]) {
+    ui.run(`sortSpeedTable('${key}')`);
+    assert.equal(ui.run('speedTableRows().map(r=>r.upstream).join()'),order);
+  }
+  assert.ok(ui.result.innerHTML.includes('可用(5m)'));
+  assert.ok(ui.result.innerHTML.includes('可用(15m)'));
+  assert.ok(!ui.result.innerHTML.includes('&lt;bad&gt;'));
+  assert.ok(ui.result.innerHTML.includes('失败'));
+  assert.ok(ui.result.innerHTML.includes('class="speed-table-wrap"'));
+  assert.ok(!ui.result.innerHTML.includes('<th>来源 / 详情</th>'));
+});
+
+test('batch speed UI: default all, controls and sequential progressive results', async () => {
+  const ui = frontend();
+  ui.run(`var inputs=[], nodes={};
+    document.querySelector = (id) => nodes[id] ||= {value:'${model}',dataset:{},style:{},querySelectorAll:(selector)=>selector==='input:checked'?inputs.filter(x=>x.checked):inputs};
+    DATA={subscription:[{id:'${model}',config:{},meta:{upstreams:['a','b','c']}}]};
+    onSpeedModelChange();`);
+  assert.equal(ui.run(`$('#speedUpstreams').innerHTML.match(/ checked/g).length`),3);
+  ui.run(`inputs=['a','b','c'].map(value=>({value,checked:true})); selectSpeedUpstreams(false);`);
+  assert.equal(ui.run(`$('#speedBtn').disabled`),true);
+  ui.run(`selectSpeedUpstreams(true); var calls=[], snapshots=[], active=0, maxActive=0;
+    renderSpeedTable=()=>snapshots.push(SPEED_RESULTS.map(r=>r.state).join());
+    api=async(url,body)=>{
+      active++;maxActive=Math.max(active,maxActive);calls.push(body.upstream);
+      await Promise.resolve();active--;
+      if(body.upstream==='b') throw new Error('simulated failure');
+      return {ok:true,generationSpeed:body.upstream==='c'?100:10};
+    };`);
+  await ui.run('runSpeedTest()');
+  assert.equal(ui.run('calls.join()'),'a,b,c');
+  assert.equal(ui.run('maxActive'),1);
+  assert.equal(ui.run('snapshots.includes("完成,测速中,等待中")'),true);
+  assert.equal(ui.run('SPEED_RESULTS.map(r=>r.state).join()'),'完成,失败,完成');
+  assert.equal(ui.run('SPEED_SORT'),'generationSpeed');
+  assert.equal(ui.run('speedTableRows().map(r=>r.upstream).join()'),'c,a,b');
+  assert.equal(ui.run('SPEED_BUSY'),false);
+  assert.equal(ui.run('inputs.every(x=>!x.disabled)'),true);
 });

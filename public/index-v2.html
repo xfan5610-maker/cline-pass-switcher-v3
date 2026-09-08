@@ -37,6 +37,20 @@
   input[type=number] { width: 64px; }
   .row-actions { display: flex; gap: 6px; }
   .result { margin-top: 12px; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.8; display: none; white-space: pre-wrap; word-break: break-all; }
+  #speedResult { white-space: normal; overflow-x: auto; }
+  #speedResult { word-break: normal; line-height: 1.45; }
+  #speedResult .speed-table-wrap { overflow-x: auto; margin-top: 8px; }
+  #speedResult table { table-layout: fixed; min-width: 850px; font-size: 12px; }
+  #speedResult th, #speedResult td { padding: 7px 5px; white-space: normal; overflow-wrap: anywhere; }
+  #speedResult th:nth-child(1) { width: 36px; }
+  #speedResult th:nth-child(2) { width: 130px; }
+  #speedResult th:nth-child(3) { width: 42px; }
+  #speedResult th button { width: 100%; padding: 4px 0; border: 0; background: transparent; font-size: 12px; white-space: normal; line-height: 1.4; }
+  #speedResult td.speed-number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #speedResult .speed-notes { overflow-wrap: anywhere; }
+  #speedResult .speed-notes details div { max-height: 200px; overflow-y: auto; }
+  #speedResult details { margin-top: 10px; }
+  #speedResult details div { white-space: pre-wrap; }
   .kvs { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; }
   .kvs div { font-size: 12.5px; color: var(--dim); }
   .kvs b { color: var(--text); font-weight: 600; }
@@ -195,6 +209,20 @@
       <span class="dim" style="font-size:12px">使用 max_tokens=256 的小请求，消耗极小</span>
     </div>
     <div class="result" id="testResult"></div>
+  </div>
+
+  <div class="card">
+    <h2>上游测速</h2>
+    <p class="dim" style="font-size:12px; line-height:1.7; margin-bottom:10px;">默认全选当前订阅模型的上游，按选择逐个测速并实时填表；每个上游最多生成 1024 token，会消耗订阅额度。完成后按生成速度降序；点击表头切换排序，速度、价格、可用性降序，延迟升序，缺失值置后。生成速度＝输出 token ÷ 首个至最后生成片段的时间；体感均速＝输出 token ÷ 含等待的全程时间。token 数取上游 usage，可能包含推理。首包延迟＝本服务发起请求至收到首个响应数据块的时间，可能早于正文首字。缺失数据静默隐藏。</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <select id="speedModel" aria-label="测速模型" style="min-width:240px"></select>
+      <button class="ghost" id="speedAllBtn" onclick="selectSpeedUpstreams(true)">全选上游</button>
+      <button class="ghost" id="speedNoneBtn" onclick="selectSpeedUpstreams(false)">清空选择</button>
+      <button class="ghost" id="speedProbeBtn" onclick="probeSpeedModel()">探测供应商</button>
+      <button id="speedBtn" onclick="runSpeedTest()">开始批量测速</button>
+    </div>
+    <div id="speedUpstreams" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px" aria-label="测速供应商（多选）"></div>
+    <div class="result" id="speedResult" aria-live="polite"></div>
   </div>
 
   <div class="card">
@@ -396,6 +424,11 @@ function render() {
   if (DATA.subscription.some((s) => s.id === testModel)) $('#testModel').value = testModel;
   onTestModelChange();
   if ([...$('#testUpstream').options].some((o) => o.value === testUpstream)) $('#testUpstream').value = testUpstream;
+  const speedModel = $('#speedModel').value;
+  const speedUpstream = $('#speedUpstreams').dataset.model === speedModel ? selectedSpeedUpstreams() : null;
+  $('#speedModel').innerHTML = DATA.subscription.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)}</option>`).join('');
+  if (DATA.subscription.some((s) => s.id === speedModel)) $('#speedModel').value = speedModel;
+  onSpeedModelChange(speedUpstream);
 
   $('#catSummary').textContent = `展开（共 ${DATA.catalogCount} 个目录模型）`;
   const of = DATA.officialFetch;
@@ -547,6 +580,122 @@ async function runTest() {
   } finally {
     btn.disabled = false; btn.textContent = '发送测试';
   }
+}
+
+let SPEED_BUSY = false, SPEED_RESULTS = [], SPEED_SORT = 'generationSpeed';
+function selectedSpeedUpstreams() {
+  return [...$('#speedUpstreams').querySelectorAll('input:checked')].map((input) => input.value);
+}
+function onSpeedModelChange(selected = null) {
+  const model = $('#speedModel').value;
+  const s = DATA.subscription.find((s) => s.id === model);
+  const providers = sortedUpstreams(s?.meta, s?.config.sort);
+  $('#speedUpstreams').dataset.model = model;
+  $('#speedUpstreams').innerHTML = providers.length
+    ? providers.map((u) => `<label><input type="checkbox" value="${escapeHtml(u)}" ${selected === null || selected.includes(u) ? 'checked' : ''} ${SPEED_BUSY ? 'disabled' : ''} onchange="updateSpeedButton()"> ${escapeHtml(u)}</label>`).join('')
+    : '<span class="dim">请先探测供应商</span>';
+  updateSpeedButton();
+}
+function updateSpeedButton() {
+  $('#speedBtn').disabled = SPEED_BUSY || !selectedSpeedUpstreams().length;
+}
+function selectSpeedUpstreams(checked) {
+  if (SPEED_BUSY) return;
+  for (const input of $('#speedUpstreams').querySelectorAll('input')) input.checked = checked;
+  updateSpeedButton();
+}
+function speedBusy(busy) {
+  SPEED_BUSY = busy;
+  for (const id of ['speedModel', 'speedBtn', 'speedProbeBtn', 'speedAllBtn', 'speedNoneBtn']) $('#' + id).disabled = busy;
+  for (const input of $('#speedUpstreams').querySelectorAll('input')) input.disabled = busy;
+  updateSpeedButton();
+}
+
+async function probeSpeedModel() {
+  const model = $('#speedModel').value;
+  speedBusy(true);
+  const el = $('#speedResult'); el.style.display = 'block'; el.textContent = '正在探测供应商…';
+  try {
+    const r = await api('/api/probe', { model });
+    if (!r.ok) throw new Error(r.error || '探测失败');
+    const s = DATA.subscription.find((s) => s.id === model);
+    if (s) s.meta = r;
+    render();
+    onSpeedModelChange();
+    el.textContent = `${model} 已更新供应商列表`;
+  } catch (e) { el.textContent = e.message; }
+  finally { speedBusy(false); }
+}
+
+async function runSpeedTest() {
+  const model = $('#speedModel').value, upstreams = selectedSpeedUpstreams();
+  if (SPEED_BUSY || !model || !upstreams.length) return;
+  speedBusy(true);
+  SPEED_SORT = '';
+  SPEED_RESULTS = upstreams.map((upstream) => ({ model, upstream, state: '等待中' }));
+  renderSpeedTable();
+  try {
+    for (let i = 0; i < upstreams.length; i++) {
+      SPEED_RESULTS[i].state = '测速中';
+      renderSpeedTable();
+      try {
+        const r = await api('/api/speed-test', { model, upstream: upstreams[i] });
+        SPEED_RESULTS[i] = { ...r, model, upstream: upstreams[i], state: r.ok ? '完成' : '失败' };
+      } catch (e) {
+        SPEED_RESULTS[i] = { model, upstream: upstreams[i], state: '失败', error: e.message };
+      }
+      renderSpeedTable();
+    }
+  } finally {
+    speedBusy(false);
+    SPEED_SORT = 'generationSpeed';
+    renderSpeedTable();
+  }
+}
+
+const SPEED_COLUMNS = [
+  ['generationSpeed', '生成速度', 'token/s'], ['perceivedSpeed', '体感均速', 'token/s'], ['firstPacketMs', '首包延迟', 'ms'],
+  ['input', '价格（输入）', '$'], ['output', '价格（输出）', '$'], ['cacheRead', '价格（缓存读）', '$'],
+  ['uptime5m', '可用(5m)', '%'], ['uptime15m', '可用(15m)', '%'], ['uptimeDay', '可用(1d)', '%']
+];
+function speedTableRows() {
+  const rows = SPEED_RESULTS.flatMap((r) => {
+    const offers = r.ok && r.detail?.offers?.length ? r.detail.offers : [{}];
+    return offers.map((offer) => ({ ...r, ...offer,
+      uptime5m: r.detail?.source === 'OpenRouter' ? offer.uptimeShort : null,
+      uptime15m: r.detail?.source === 'Vercel' ? offer.uptimeShort : null }));
+  });
+  if (SPEED_SORT) rows.sort((a, b) => {
+    const av = a[SPEED_SORT], bv = b[SPEED_SORT];
+    if (!Number.isFinite(av)) return Number.isFinite(bv) ? 1 : 0;
+    if (!Number.isFinite(bv)) return -1;
+    return SPEED_SORT === 'firstPacketMs' ? av - bv : bv - av;
+  });
+  return rows;
+}
+function sortSpeedTable(key) {
+  if (!SPEED_COLUMNS.some(([name]) => name === key)) return;
+  SPEED_SORT = key;
+  renderSpeedTable();
+}
+function renderSpeedTable() {
+  const el = $('#speedResult'); el.style.display = 'block';
+  const rows = speedTableRows();
+  const columns = SPEED_COLUMNS.filter(([key]) => rows.some((r) => Number.isFinite(r[key])));
+  const completed = SPEED_RESULTS.filter((r) => r.state === '完成' || r.state === '失败').length;
+  const number = (v, unit) => (unit === '$' ? '$' : '') + v.toLocaleString('en-US', { maximumFractionDigits: unit === '$' ? 6 : 2 }) + (unit === '%' ? '%' : '');
+  el.innerHTML = `<div>模型：${escapeHtml(SPEED_RESULTS[0]?.model || '')} · 已完成 ${completed}/${SPEED_RESULTS.length}</div>
+    <div class="dim">价格：美元/百万 token；多端点分行列出公开报价与可用性，测速数值属于该供应商本次请求。缺失数据留空，排序置后。</div>
+    <div class="speed-table-wrap"><table><thead><tr><th>排名</th><th>上游 / 端点</th><th>状态</th>${columns.map(([key, label, unit]) => `<th aria-sort="${SPEED_SORT === key ? (key === 'firstPacketMs' ? 'ascending' : 'descending') : 'none'}"><button class="ghost" onclick="sortSpeedTable('${key}')">${label.replace('价格（', '').replace('）', '')} ${key === 'firstPacketMs' ? '↑' : '↓'}${unit === 'token/s' || unit === 'ms' ? '<br><span class="dim">' + unit + '</span>' : ''}</button></th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r, i) => `<tr><td>#${i + 1}</td><td>${escapeHtml(r.upstream)}${r.endpoint ? '<div class="dim">' + escapeHtml(r.endpoint) + '</div>' : ''}</td>
+      <td${r.state === '失败' ? ' class="mismatch"' : ''}>${escapeHtml(r.state || (r.ok ? '完成' : '失败'))}</td>
+      ${columns.map(([key, , unit]) => `<td class="speed-number">${Number.isFinite(r[key]) ? number(r[key], unit) : ''}</td>`).join('')}
+      </tr>`).join('')}</tbody></table></div>
+    <details class="speed-notes"><summary>查看来源与生成正文</summary>${SPEED_RESULTS.filter((r) => r.ok && (r.detail || r.preview)).map((r) => `<details><summary>${escapeHtml(r.upstream)}${r.detail ? ' · ' + escapeHtml(r.detail.source) : ''}</summary>
+      ${r.detail ? '<div class="dim">采集时间：' + escapeHtml(new Date(r.detail.fetchedAt).toLocaleString()) + '</div>' : ''}
+      ${r.actual ? '<div>实际：' + escapeHtml(r.actual) + '</div>' : ''}
+      ${r.preview ? '<div>' + escapeHtml(r.preview) + '</div>' : ''}</details>`).join('')}</details>`;
+
 }
 
 function onTestModelChange() {
@@ -878,6 +1027,7 @@ function status(msg) { $('#status').textContent = msg; clearTimeout(statusTimer)
 
 $('#proxyBase').onclick = () => navigator.clipboard.writeText(DATA.proxyBase).then(() => status('已复制代理地址'));
 $('#testModel').addEventListener('change', onTestModelChange);
+$('#speedModel').addEventListener('change', () => onSpeedModelChange());
 $('#testResult').addEventListener('click', (event) => {
   const btn = event.target.closest('button[data-watch-upstream]');
   if (btn) watchUpstream(btn.dataset.watchModel, btn.dataset.watchUpstream, btn);
