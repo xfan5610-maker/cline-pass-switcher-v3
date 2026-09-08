@@ -17,6 +17,12 @@
 
 详细操作、指标口径与持久化规则见 [V2 使用说明](docs/v2.md)。
 
+![V2 批量上游测速结果](docs/image.png)
+
+图中排名靠前的端点均带有 `fp8` / `fp4` 标注，我认为它们对应量化版本。不过，这些端点标签读取自 OpenRouter 提供的数据，不一定准确；端点名称没有 `fp8` / `fp4` 标注，也不意味着没有量化。
+
+根据本次截图中的测速结果，排除明确标注 `fp8` / `fp4` 的端点后，`deepseek` 上游 API 的首包延迟最低、生成速度第二、体感均速第一，符合预期。这是本次测速的观察结果。
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-green)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED)
