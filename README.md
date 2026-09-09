@@ -42,23 +42,33 @@
 
 ## Termux 一键部署（推荐）
 
-Android / Termux 用户推荐直接使用一键部署脚本。
+Android / Termux 用户推荐使用一键部署脚本。
 
-在 Termux 中复制并执行下面这一条命令：
+### 首次部署（新设备 / 新 Termux）
+
+新设备首次安装时，建议先完整升级 Termux 软件包，再执行部署：
 
 ```bash
-pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/xfan5610-maker/cline-pass-switcher-v3/main/install-termux.sh | bash
+apt update && apt full-upgrade -y && apt install -y curl && curl -fsSL https://raw.githubusercontent.com/xfan5610-maker/cline-pass-switcher-v3/main/install-termux.sh | bash
 ```
 
-脚本会自动完成：
+这样可以尽量避免 Termux 因部分软件包升级不完整，导致 `curl`、`libcurl`、OpenSSL 等组件版本不一致。
 
-- 检查 Git，没有则自动安装；
-- 检查 Node.js，已有 Node.js ≥ 18 时不会修改现有版本；
-- 检查 PM2，没有则自动安装；
+安装脚本会自动完成：
+
+- 检查 Termux 环境及软件包依赖状态；
+- 检查 / 安装并验证 Git；
+- 检查 / 安装 Node.js，并强制要求 Node.js ≥ 18；
+- 检查并验证 npm；
+- 检查 / 安装并验证 PM2；
 - 下载项目到 `~/cline-pass-switcher-v3`；
 - 检查 `server-v3.js` 语法；
 - 启动 `cline-pass-v3` 后台服务；
-- 保存 PM2 进程列表，方便后续恢复运行。
+- 检查 PM2 中的服务是否真正处于 `online`；
+- 服务异常时输出最近日志并停止部署；
+- 所有检查通过后保存 PM2 进程列表。
+
+只有全部检查通过后，脚本才会显示部署完成。
 
 部署完成后打开：
 
@@ -72,21 +82,39 @@ http://127.0.0.1:3123/
 
 ### 更新 / 重新部署
 
-以后需要更新项目时，可以直接再次执行同一条命令：
+已经正常部署过的设备，不需要每次都执行完整的 Termux 系统升级。
+
+需要更新项目时，直接再次运行：
 
 ```bash
-pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/xfan5610-maker/cline-pass-switcher-v3/main/install-termux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xfan5610-maker/cline-pass-switcher-v3/main/install-termux.sh | bash
 ```
 
-如果项目已经存在，脚本会拉取最新代码并重新启动 PM2 服务，不需要重新手动部署。
+如果项目已经存在，脚本会：
+
+- 拉取最新代码；
+- 检查程序；
+- 重新绑定并启动 PM2 服务；
+- 确认服务状态为 `online`；
+- 保存最新 PM2 进程列表。
+
+因此同一条安装脚本也可以用于后续更新和重新部署。
 
 ### 常用 Termux 管理命令
 
-查看运行状态：
+查看当前运行状态：
 
 ```bash
 pm2 ls
 ```
+
+如果看到：
+
+```text
+cline-pass-v3  online
+```
+
+说明服务已经正常运行，无需再次启动。
 
 重启服务：
 
@@ -106,13 +134,91 @@ pm2 logs cline-pass-v3
 pm2 stop cline-pass-v3
 ```
 
-如果 Termux 被 Android 系统关闭，重新打开 Termux 后可尝试恢复已保存的服务：
+手机重启，或者 Termux 被 Android 系统彻底关闭后，重新打开 Termux，可以执行：
 
 ```bash
 pm2 resurrect
 ```
 
+`pm2 resurrect` 会恢复之前通过 `pm2 save` 保存的服务。
+
+普通关闭 Termux 界面后再次打开，可以先执行：
+
+```bash
+pm2 ls
+```
+
+如果 `cline-pass-v3` 已经显示为 `online`，则不需要执行 `pm2 resurrect`。
+
+### Termux 常见故障
+
+#### `CANNOT LINK EXECUTABLE` / `cannot locate symbol`
+
+如果出现类似：
+
+```text
+CANNOT LINK EXECUTABLE "curl"
+cannot locate symbol
+```
+
+通常说明 Termux 的软件包版本不一致，例如 `curl` / `libcurl` 与 OpenSSL 相关库没有处于同一套版本。
+
+先执行：
+
+```bash
+apt update
+apt full-upgrade -y
+```
+
+升级完成后，再重新执行首次部署命令。
+
+#### 没有选择 Termux 软件源 / 镜像不可用
+
+如果出现类似：
+
+```text
+No mirror or mirror group selected
+```
+
+或者软件包无法正常更新，可以执行：
+
+```bash
+termux-change-repo
+```
+
+选择可用的软件源，然后执行：
+
+```bash
+apt update
+apt full-upgrade -y
+```
+
+完成后再重新部署。
+
+#### 存在未完成的软件包配置
+
+如果安装脚本提示检测到未完成的软件包配置，可以执行：
+
+```bash
+dpkg --configure -a
+apt full-upgrade -y
+```
+
+处理完成后，再重新执行部署脚本。
+
+#### PM2 找不到
+
+新版安装脚本会在安装 PM2 后强制检查：
+
+```bash
+command -v pm2
+pm2 --version
+```
+
+如果 PM2 安装后仍无法执行，脚本会直接停止部署并输出 `PREFIX`、`PATH`、Node.js、npm、PM2 和 npm global prefix 等诊断信息，不会继续错误地显示“部署完成”。
+
 ---
+
 ![上游管理：路由模式、优先上游与排除上游](docs/termux-06.jpg)
 
 ![模型管理：模型探测、测试、校验与路由入口](docs/termux-05.jpg)
@@ -120,6 +226,7 @@ pm2 resurrect
 ![上游测速结果：生成速度、首包延迟与价格排名](docs/termux-02.jpg)
 
 ![上游测速结果：速度、延迟与价格排名](docs/termux-03.jpg)
+
 ## 30 秒上手（本地）
 
 如果不使用一键部署，也可以手动运行：
