@@ -1,8 +1,8 @@
 # Cline Pass 上游控制台（cline-pass-switcher）
 
-本仓库基于 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher) 维护当前 **V3**：后端入口为 `server-v3.js`，管理面板为 `public/index-v3.html`。
+本仓库是基于 [liqiming-whu/cline-pass-switcher](https://github.com/liqiming-whu/cline-pass-switcher) 的移动端适配修改版；原项目源自 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher)。重点优化手机端管理面板、上游管理与操作体验。
 
-## V3 功能
+## 功能概览
 
 - **自定义上游**：测试台可填写上游 slug，严格指定该渠道发送测试；错误中的上游名称高亮，点击即可加入对应模型的监查列表。
 - **持久管理**：支持逐项删除上游，同步清理优先、排除及指标缓存；重启和再次探测不会自动加回，手动收录可恢复。
@@ -16,7 +16,7 @@
 批量测速每个上游最多生成 1024 token，单项超时 120 秒，会消耗订阅额度。价格单位为美元/百万 token，可用性取对应网关公开接口；缺失数据静默隐藏。
 
 
-![V3 批量上游测速结果](docs/image.png)
+![批量上游测速结果](docs/image.png)
 
 图中排名靠前的端点均带有 `fp8` / `fp4` 标注，我认为它们对应量化版本。不过，这些端点标签读取自 OpenRouter 提供的数据，不一定准确；端点名称没有 `fp8` / `fp4` 标注，也不意味着没有量化。
 
@@ -44,8 +44,8 @@
 ## 30 秒上手（本地）
 
 ```bash
-git clone https://github.com/liqiming-whu/cline-pass-switcher.git
-cd cline-pass-switcher
+git clone https://github.com/xfan5610-maker/cline-pass-switcher-v3.git
+cd cline-pass-switcher-v3
 node server-v3.js     # 仅需 Node ≥ 18，无需 npm install
 ```
 
@@ -53,11 +53,10 @@ node server-v3.js     # 仅需 Node ≥ 18，无需 npm install
 没有 key 也能启动：页面会提示配置入口。
 
 
-本地验证 V3（隔离配置及模拟上游响应，不发送真实推理请求）：
+本地验证（隔离配置及模拟上游响应，不发送真实推理请求）：
 
 ```bash
 node --check server-v3.js
-node --test tests/server-v2.test.cjs
 ```
 
 > Cline Pass key 从哪里来？购买 Cline Pass 订阅后，在 Cline 的账户设置里创建 API Key。
@@ -75,7 +74,7 @@ Model:    cline-pass/glm-5.2 等
 
 ## Docker 部署
 
-以下 Docker 配置已统一使用 `server-v3.js` 启动，与本地 V3 使用相同的配置文件格式。
+以下 Docker 配置已统一使用 `server-v3.js` 启动，与本地运行使用相同的配置文件格式。
 
 ### 方式 A：All-in-one（自带 Caddy 自动 HTTPS，推荐新手）
 
