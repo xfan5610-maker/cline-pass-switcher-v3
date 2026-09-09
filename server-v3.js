@@ -523,6 +523,63 @@ function record(modelId, info) {
   saveMeta();
 }
 
+
+// ---------- V3 稳定性层：运行态观测 + SSE 空闲看门狗 ----------
+const V3_STARTED_AT = Date.now();
+const V3_STREAM_IDLE_MS = Math.max(15000, Number(process.env.STREAM_IDLE_TIMEOUT_MS) || 90000);
+const V3_STREAM_TAIL_BYTES = Math.max(32768, Number(process.env.STREAM_TAIL_BYTES) || 131072);
+const V3_ACTIVE_STREAMS = new Map();
+let V3_STREAM_SEQ = 0;
+let V3_STALLED_TOTAL = 0;
+
+function v3RuntimeSnapshot() {
+  const now = Date.now();
+  return {
+    version: 'v3-stability-1',
+    startedAt: V3_STARTED_AT,
+    uptimeMs: now - V3_STARTED_AT,
+    streamIdleTimeoutMs: V3_STREAM_IDLE_MS,
+    activeStreams: [...V3_ACTIVE_STREAMS.values()].map((s) => ({
+      id: s.id, model: s.model, account: s.account, startedAt: s.startedAt,
+      lastChunkAt: s.lastChunkAt, idleMs: now - s.lastChunkAt,
+      bytes: s.bytes, target: s.target, state: s.state,
+    })),
+    stalledTotal: V3_STALLED_TOTAL,
+  };
+}
+
+function v3TailAppend(prev, chunk) {
+  const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  if (b.length >= V3_STREAM_TAIL_BYTES) return b.subarray(b.length - V3_STREAM_TAIL_BYTES);
+  const merged = Buffer.concat([prev, b]);
+  return merged.length > V3_STREAM_TAIL_BYTES
+    ? merged.subarray(merged.length - V3_STREAM_TAIL_BYTES) : merged;
+}
+
+function v3ParseTailRouting(tail) {
+  const text = tail.toString('utf8');
+  let provider = null, canonical = null;
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0 && i >= lines.length - 20 && !provider; i--) {
+    const l = lines[i];
+    if (!l.startsWith('data: ') || l.includes('[DONE]')) continue;
+    try {
+      const c = JSON.parse(l.slice(6));
+      if (typeof c.provider === 'string') {
+        provider = slugify(c.provider);
+        canonical = c.model || null;
+      }
+    } catch {}
+  }
+  if (!provider) {
+    const fp = /"finalProvider":"([^"]+)"/.exec(text);
+    const cs = /"canonicalSlug":"([^"]+)"/.exec(text);
+    provider = fp ? fp[1] : null;
+    canonical = cs ? cs[1] : null;
+  }
+  return { provider, canonical };
+}
+
 // ---------- 聊天代理 ----------
 const CHAT_PATHS = new Set(['/chat/completions', '/v1/chat/completions', '/api/v1/chat/completions']);
 
@@ -728,7 +785,16 @@ async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTi
           // 真 SSE：firstChunk 与剩余 body 串联透传（SSE 开始后无法重试）；close 钩子保留用于客户端断开时中止上游
           keepCloseHook = true;
           trace.push({ upstream: attempt.upstream, status: 200, ms, note: 'stream' });
-          return { status: 200, streamUp: up, streamHead: firstChunk, acc, trace, t0 };
+          return {
+            status: 200,
+            streamUp: up,
+            streamHead: firstChunk,
+            acc,
+            trace,
+            t0,
+            streamAbort: () => ctrl.abort(),
+            streamCleanup: () => req.off('close', onClientClose),
+          };
         }
         // 非流式
         const r = await attemptOnce(modelId, body, attempt, ctrl.signal);
@@ -763,11 +829,19 @@ async function handleChat(req, res) {
   const chain = await runChatChain(req, body, modelId, cfg, { stream: isStream });
 
   if (isStream && chain.streamUp) {
-    // 流式透传：先写已探测的首块，再接剩余 body；tap 在结束时回读路由元数据并记录
+    // V3：显式泵送 WebStream，增加空闲超时、背压、有限尾部缓存与完整清理。
     const up = chain.streamUp;
     const acc = chain.acc;
     const t0 = chain.t0;
     const ctype = up.headers.get('content-type') || 'text/event-stream';
+    const streamId = ++V3_STREAM_SEQ;
+    const state = {
+      id: streamId, model: modelId, account: acc?.name || null,
+      target: targets.length ? targets.join('>') : 'auto',
+      startedAt: Date.now(), lastChunkAt: Date.now(), bytes: 0, state: 'STREAMING',
+    };
+    V3_ACTIVE_STREAMS.set(streamId, state);
+
     res.writeHead(up.status, {
       'Content-Type': ctype,
       'Cache-Control': 'no-cache',
@@ -776,36 +850,101 @@ async function handleChat(req, res) {
       'X-Cline-Target-Upstream': targets.length ? targets.join('>') : 'auto',
       'X-Cline-Attempts': String(chain.trace.length),
       'X-Cline-Account': headerSafe(acc.name),
+      'X-Cline-Stream-Id': String(streamId),
     });
-    if (chain.streamHead) res.write(chain.streamHead);
-    const buf = [];
-    const tap = new Transform({
-      transform(c, enc, cb) { buf.push(c); cb(null, c); },
-      flush(cb) {
-        const text = Buffer.concat(buf).toString('utf8');
-        let provider = null, canonical = null;
-        // direct 管道：最后一个 chunk 顶层带 provider（显示名）与 model
-        const lines = text.split('\n');
-        for (let i = lines.length - 1; i >= 0 && i >= lines.length - 10 && !provider; i--) {
-          const l = lines[i];
-          if (!l.startsWith('data: ') || l.includes('[DONE]')) continue;
-          try {
-            const c = JSON.parse(l.slice(6));
-            if (typeof c.provider === 'string') { provider = slugify(c.provider); canonical = c.model || null; }
-          } catch { /* 跳过不完整行 */ }
+
+    let reader = null;
+    let idleTimer = null;
+    let tail = Buffer.alloc(0);
+    let finished = false;
+    let recorded = false;
+
+    state.abort = () => {
+      if (finished) return false;
+      state.state = 'ABORTING';
+      try { chain.streamAbort?.(); } catch {}
+      try { reader?.cancel('aborted by admin')?.catch?.(() => {}); } catch {}
+      return true;
+    };
+
+    const armIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (finished) return;
+        state.state = 'STALLED';
+        V3_STALLED_TOTAL++;
+        try { chain.streamAbort?.(); } catch {}
+        try { reader?.cancel('stream idle timeout'); } catch {}
+      }, V3_STREAM_IDLE_MS);
+    };
+
+    const pushChunk = async (chunk) => {
+      if (!chunk || !chunk.length) return;
+      state.lastChunkAt = Date.now();
+      state.bytes += chunk.length;
+      state.state = 'STREAMING';
+      tail = v3TailAppend(tail, chunk);
+      armIdle();
+      if (!res.write(chunk)) {
+        await new Promise((resolve) => res.once('drain', resolve));
+      }
+    };
+
+    try {
+      armIdle();
+      if (chain.streamHead) await pushChunk(chain.streamHead);
+      reader = up.body.getReader();
+
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        await pushChunk(Buffer.from(part.value));
+      }
+
+      if (state.state === 'STALLED') throw new Error('stream idle timeout');
+      if (state.state === 'ABORTING') throw new Error('aborted by admin');
+      finished = true;
+      state.state = 'DONE';
+      const { provider, canonical } = v3ParseTailRouting(tail);
+      record(modelId, {
+        provider, canonical, ms: Date.now() - t0, stream: true, error: null,
+        account: acc.name, attempts: chain.trace.map((t) => t.upstream || 'auto'),
+      });
+      recorded = true;
+      if (!res.writableEnded) res.end();
+    } catch (err) {
+      finished = true;
+      const idleFor = Date.now() - state.lastChunkAt;
+      const stalled = state.state === 'STALLED' || idleFor >= V3_STREAM_IDLE_MS;
+      state.state = stalled ? 'STALLED' : 'ERROR';
+      const message = stalled
+        ? `上游流连续 ${Math.round(idleFor / 1000)} 秒无数据，已自动中止`
+        : `上游流异常：${err?.message || String(err)}`;
+
+      if (!recorded) {
+        record(modelId, {
+          provider: null, canonical: null, ms: Date.now() - t0, stream: true, error: message,
+          account: acc?.name || null, attempts: chain.trace.map((t) => t.upstream || 'auto'),
+        });
+        recorded = true;
+      }
+
+      if (!res.writableEnded && !res.destroyed) {
+        try {
+          res.write(`data: ${JSON.stringify({ error: { message, type: stalled ? 'stream_idle_timeout' : 'stream_error' } })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+        } catch {
+          try { res.destroy(); } catch {}
         }
-        // planner 管道：final chunk 的 provider_metadata.gateway.routing
-        if (!provider) {
-          const fp = /"finalProvider":"([^"]+)"/.exec(text);
-          const cs = /"canonicalSlug":"([^"]+)"/.exec(text);
-          provider = fp ? fp[1] : null;
-          canonical = cs ? cs[1] : null;
-        }
-        record(modelId, { provider, canonical, ms: Date.now() - t0, stream: true, error: null, account: acc.name, attempts: chain.trace.map((t) => t.upstream || 'auto') });
-        cb();
-      },
-    });
-    Readable.fromWeb(up.body).pipe(tap).pipe(res);
+      }
+    } finally {
+      clearTimeout(idleTimer);
+      try { await reader?.cancel(); } catch {}
+      try { reader?.releaseLock(); } catch {}
+      try { chain.streamCleanup?.(); } catch {}
+      V3_ACTIVE_STREAMS.delete(streamId);
+    }
     return;
   }
 
@@ -988,7 +1127,19 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(fs.readFileSync(path.join(PUBLIC_DIR, 'index-v2.html')));
+      return res.end(fs.readFileSync(path.join(PUBLIC_DIR, 'index-v3.html')));
+    }
+    if (req.method === 'GET' && p === '/api/runtime') {
+      return sendJSON(res, 200, v3RuntimeSnapshot());
+    }
+    if (req.method === 'POST' && p === '/api/runtime/abort') {
+      const body = JSON.parse(await readBody(req).then((b) => b.toString()));
+      const id = Number(body.id);
+      const stream = V3_ACTIVE_STREAMS.get(id);
+      if (!Number.isInteger(id) || !stream) return sendJSON(res, 404, { ok: false, error: '活动请求不存在或已经结束' });
+      if (typeof stream.abort !== 'function') return sendJSON(res, 409, { ok: false, error: '当前请求不支持单独终止' });
+      stream.abort();
+      return sendJSON(res, 200, { ok: true, id });
     }
     if (req.method === 'GET' && p === '/api/models') {
       const cat = await catalog();

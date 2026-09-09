@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Cline Pass V3.1 控制台</title>
+<style>
+:root{
+  --bg:#0b0d12;--panel:#12151c;--panel2:#171b24;--panel3:#1c212c;
+  --line:#282f3d;--line2:#343d4d;--text:#eef2f8;--muted:#909aab;
+  --accent:#6d8dff;--accent2:#516fe6;--ok:#43c782;--warn:#eda94a;--bad:#ef665f;
+  --shadow:0 16px 46px rgba(0,0,0,.28);--radius:14px;--side:248px;
+}
+*{box-sizing:border-box}
+html{background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{margin:0;min-height:100vh;background:var(--bg)}
+button,input,select{font:inherit}
+button{cursor:pointer}
+button:disabled{opacity:.48;cursor:not-allowed}
+a{color:inherit}
+code,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+.hidden{display:none!important}
+.muted{color:var(--muted)}
+.good{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.app{min-height:100vh}
+.sidebar{
+  position:fixed;inset:0 auto 0 0;width:var(--side);background:#0f1218;border-right:1px solid var(--line);
+  display:flex;flex-direction:column;z-index:60;padding:18px 12px env(safe-area-inset-bottom);
+}
+.brand{padding:5px 10px 18px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.brand-title{font-size:17px;font-weight:760;letter-spacing:.1px}
+.brand-sub{margin-top:6px;font-size:11px;color:var(--muted);line-height:1.5}
+.side-health{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(67,199,130,.1)}
+.dot.warn{background:var(--warn);box-shadow:0 0 0 3px rgba(237,169,74,.1)}
+.dot.bad{background:var(--bad);box-shadow:0 0 0 3px rgba(239,102,95,.1)}
+.nav{display:flex;flex-direction:column;gap:4px;overflow:auto;padding:4px 0}
+.nav-label{font-size:10px;color:#6f7889;padding:13px 10px 5px;text-transform:uppercase;letter-spacing:.8px}
+.nav-btn{
+  width:100%;border:1px solid transparent;background:transparent;color:#aab3c1;border-radius:10px;
+  display:flex;align-items:center;gap:11px;padding:10px 11px;text-align:left;font-size:13px;
+}
+.nav-btn:hover{background:var(--panel2);color:var(--text)}
+.nav-btn.active{background:#1a2133;border-color:#2b385b;color:#dfe7ff}
+.nav-icon{width:20px;text-align:center;font-size:15px}
+.side-foot{margin-top:auto;padding:12px 8px 0;border-top:1px solid var(--line);font-size:11px;color:var(--muted);line-height:1.55}
+.shell{margin-left:var(--side);min-height:100vh}
+.topbar{
+  position:sticky;top:0;z-index:40;height:64px;background:rgba(11,13,18,.88);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 24px;
+}
+.menu-btn{display:none}
+.top-title{font-weight:720;font-size:16px;white-space:nowrap}
+.top-spacer{flex:1}
+.proxy-chip{
+  max-width:min(46vw,520px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:9px;
+  padding:8px 10px;font-size:11px
+}
+.icon-btn,.btn{
+  border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:9px;
+  min-height:38px;padding:8px 12px
+}
+.icon-btn{width:38px;padding:0;display:grid;place-items:center}
+.btn.primary{background:var(--accent2);border-color:var(--accent);color:#fff}
+.btn.danger{background:#311b1e;border-color:#673038;color:#ffaaa5}
+.btn.ghost{background:transparent}
+.btn.small{min-height:34px;padding:6px 10px;font-size:12px}
+.content{max-width:1280px;margin:0 auto;padding:24px}
+.page{display:none}
+.page.active{display:block}
+.page-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.page-title{font-size:23px;font-weight:760;margin:0}
+.page-desc{font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;
+  box-shadow:0 1px 0 rgba(255,255,255,.015)
+}
+.card + .card{margin-top:14px}
+.card-title{font-size:14px;font-weight:700;margin:0}
+.card-sub{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5}
+.grid{display:grid;gap:12px}
+.grid.stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px}
+.stat-k{font-size:11px;color:var(--muted)}
+.stat-v{font-size:24px;font-weight:760;margin-top:7px;line-height:1.1}
+.stat-note{font-size:10px;color:#727c8d;margin-top:7px}
+.split{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.8fr);gap:14px;margin-top:14px}
+.list{display:flex;flex-direction:column;gap:8px}
+.list-item{
+  background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px;
+  display:flex;align-items:center;gap:12px
+}
+.list-main{min-width:0;flex:1}
+.list-title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.list-sub{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.45;overflow-wrap:anywhere}
+.badge{
+  display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;
+  background:#202837;color:#b4c7ef;border:1px solid #2c3a55;font-size:10px;white-space:nowrap
+}
+.badge.ok{background:#172d24;color:#75db9f;border-color:#245039}
+.badge.warn{background:#332817;color:#f1c271;border-color:#594323}
+.badge.bad{background:#341c20;color:#ff9b94;border-color:#653139}
+.badge.dim{background:#1b1f27;color:#919aaa;border-color:#2b313c}
+.form-row{display:grid;grid-template-columns:170px minmax(0,1fr);gap:16px;align-items:start;padding:12px 0;border-bottom:1px solid #202631}
+.form-row:last-child{border-bottom:0}
+.form-label{font-size:12px;font-weight:650;padding-top:10px}
+.form-help{display:block;color:var(--muted);font-weight:400;font-size:10px;line-height:1.5;margin-top:4px}
+.field,select,input[type=text],input[type=password],input[type=search]{
+  width:100%;min-height:42px;background:var(--panel2);border:1px solid var(--line2);border-radius:9px;
+  color:var(--text);padding:9px 11px;outline:none
+}
+select:focus,input:focus{border-color:var(--accent)}
+textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);border-radius:9px;color:var(--text);padding:10px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.toolbar .field{width:auto;min-width:220px}
+.search{max-width:360px}
+.model-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.model-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;min-width:0}
+.model-head{display:flex;align-items:flex-start;gap:10px}
+.model-name{font-size:15px;font-weight:740;line-height:1.35;overflow-wrap:anywhere}
+.model-id{font-size:10.5px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+.model-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:13px}
+.mini-stat{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px;min-width:0}
+.mini-k{font-size:9.5px;color:var(--muted)}
+.mini-v{font-size:11.5px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.route-summary{
+  margin-top:11px;background:#101722;border:1px solid #263450;border-radius:10px;padding:11px
+}
+.route-line{display:flex;gap:8px;align-items:flex-start;font-size:11px;line-height:1.55}
+.route-line + .route-line{margin-top:5px}
+.route-k{width:54px;flex:none;color:#7f8aa0}
+.route-v{min-width:0;overflow-wrap:anywhere}
+.model-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.manage-btn{
+  width:100%;margin-top:10px;border:1px solid #324574;background:#18213a;color:#dbe4ff;border-radius:10px;
+  padding:11px 12px;display:flex;align-items:center;justify-content:space-between;font-size:12px
+}
+.manage-btn:hover{border-color:var(--accent)}
+.inline-result{margin-top:10px;border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:10px;font-size:11px;line-height:1.6}
+.provider-layout{display:grid;grid-template-columns:minmax(280px,.7fr) minmax(0,1.3fr);gap:14px}
+.provider-row{
+  border:1px solid var(--line);border-left:3px solid var(--line);background:var(--panel2);border-radius:11px;padding:12px;
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center
+}
+.provider-row.status-ok{border-left-color:var(--ok)}
+.provider-row.status-limited{border-left-color:var(--warn)}
+.provider-row.status-bad,.provider-row.status-auth{border-left-color:var(--bad)}
+.provider-row.status-unknown{border-left-color:#555f70}
+.provider-name{font-size:12.5px;font-weight:650;overflow-wrap:anywhere;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.provider-sub{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
+.status-pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:700;border:1px solid var(--line);white-space:nowrap}
+.status-pill.ok{color:#79e0a4;background:#163025;border-color:#26583e}
+.status-pill.limited{color:#f4c46e;background:#342817;border-color:#624824}
+.status-pill.bad,.status-pill.auth{color:#ff9d97;background:#381d21;border-color:#693037}
+.status-pill.unknown{color:#a0a9b8;background:#1b2028;border-color:#343b48}
+.provider-controls{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+.provider-test-result{grid-column:1/-1;border-top:1px solid #262d38;padding-top:9px;font-size:10.5px;line-height:1.55}
+.validation-legend{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+.validation-legend .status-pill{font-weight:650}
+.route-test-result{margin:0 0 14px}
+.segment{display:flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
+.segment button{
+  border:0;border-right:1px solid var(--line2);background:#151a23;color:#8d97a8;
+  min-height:34px;padding:6px 9px;font-size:10.5px
+}
+.segment button:last-child{border-right:0}
+.segment button.on-default{background:#232937;color:#d7dce6}
+.segment button.on-priority{background:#26375f;color:#dfe7ff}
+.segment button.on-exclude{background:#4a2429;color:#ffc0bb}
+.priority-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:9px;align-items:center}
+.priority-no{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#243252;color:#d7e1ff;font-weight:700;font-size:11px}
+.order-actions{display:flex;gap:5px;flex-wrap:wrap}
+.speed-picks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.pick{
+  display:flex;gap:8px;align-items:center;border:1px solid var(--line);background:var(--panel2);
+  border-radius:9px;padding:9px;font-size:11px;min-width:0
+}
+.pick span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.progress{height:7px;background:#1b2029;border-radius:999px;overflow:hidden;margin-top:10px}
+.progress > i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+.speed-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.speed-card{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px}
+.speed-rank{font-size:10px;color:var(--muted)}
+.speed-title{font-weight:700;margin-top:3px;overflow-wrap:anywhere}
+.speed-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
+.metric{border-top:1px solid #252c37;padding-top:7px}
+.metric-k{font-size:9px;color:var(--muted)}
+.metric-v{font-size:11.5px;margin-top:3px}
+.account-card{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px}
+.account-grid{display:grid;grid-template-columns:1fr 1.5fr auto;gap:8px;align-items:center}
+.checkline{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted)}
+.request-card{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px}
+.request-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.request-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}
+.history-row{
+  background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px;cursor:pointer
+}
+.history-head{display:flex;gap:10px;align-items:flex-start}
+.history-time{font-size:10px;color:var(--muted);width:72px;flex:none}
+.history-main{min-width:0;flex:1}
+.history-detail{display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:10.5px;line-height:1.7;color:#b6bfcd;overflow-wrap:anywhere}
+.history-row.open .history-detail{display:block}
+.catalog-list{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.catalog-item{padding:9px 11px;border-bottom:1px solid #242b36;font-size:11px;overflow-wrap:anywhere}
+.catalog-item:last-child{border-bottom:0}
+.empty{color:var(--muted);font-size:12px;text-align:center;padding:28px 12px}
+.toast-wrap{position:fixed;right:18px;bottom:18px;z-index:100;display:flex;flex-direction:column;gap:8px;max-width:min(400px,calc(100vw - 24px))}
+.toast{background:#171c25;border:1px solid var(--line2);box-shadow:var(--shadow);border-radius:10px;padding:11px 13px;font-size:11.5px;line-height:1.5}
+.toast.ok{border-color:#28533d}.toast.bad{border-color:#6b3337}.toast.warn{border-color:#65502b}
+.drawer-backdrop{display:none}
+.login{
+  position:fixed;inset:0;z-index:120;background:rgba(5,7,10,.88);backdrop-filter:blur(10px);
+  display:grid;place-items:center;padding:18px
+}
+.login-box{width:min(390px,100%);background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:20px;box-shadow:var(--shadow)}
+.login-title{font-size:18px;font-weight:750}
+.login-desc{font-size:11px;color:var(--muted);line-height:1.55;margin:7px 0 14px}
+@media(max-width:980px){
+  .model-grid{grid-template-columns:1fr}
+  .grid.stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .provider-layout{grid-template-columns:1fr}
+  .speed-picks{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .split{grid-template-columns:1fr}
+}
+@media(max-width:760px){
+  :root{--side:286px}
+  .sidebar{transform:translateX(-102%);transition:transform .2s ease;box-shadow:var(--shadow)}
+  body.drawer-open .sidebar{transform:translateX(0)}
+  .drawer-backdrop{display:block;position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .2s}
+  body.drawer-open .drawer-backdrop{opacity:1;pointer-events:auto}
+  .shell{margin-left:0}
+  .topbar{height:58px;padding:0 10px env(safe-area-inset-right) 0;gap:8px}
+  .menu-btn{display:grid}
+  .top-title{font-size:14px}
+  .proxy-chip{display:none}
+  .content{padding:14px 10px calc(30px + env(safe-area-inset-bottom))}
+  .page-head{align-items:flex-start}
+  .page-title{font-size:20px}
+  .page-desc{font-size:11px}
+  .grid.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .stat{padding:12px}.stat-v{font-size:20px}
+  .card{padding:13px;border-radius:12px}
+  .toolbar{align-items:stretch}
+  .toolbar .field,.toolbar .btn,.toolbar select{width:100%;max-width:none;min-width:0}
+  .model-meta{grid-template-columns:1fr 1fr}
+  .model-meta .mini-stat:last-child{grid-column:1/-1}
+  .model-actions .btn{flex:1;min-width:88px}
+  .form-row{grid-template-columns:1fr;gap:6px}
+  .form-label{padding-top:0}
+  .field,select,input[type=text],input[type=password],input[type=search]{min-height:46px;font-size:14px;max-width:none}
+  .provider-row{grid-template-columns:1fr}
+  .provider-controls{display:grid;grid-template-columns:1fr;width:100%}
+  .provider-controls .btn{width:100%}
+  .segment{width:100%}.segment button{flex:1;min-height:40px}
+  .priority-row{grid-template-columns:34px minmax(0,1fr)}
+  .order-actions{grid-column:1/-1;padding-left:43px}
+  .speed-picks{grid-template-columns:1fr}
+  .speed-grid{grid-template-columns:1fr}
+  .account-grid{grid-template-columns:1fr}
+  .request-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .actions{width:100%}.actions .btn{flex:1}
+  .toast-wrap{right:10px;left:10px;bottom:10px;max-width:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-title">Cline Pass V3.1</div>
+      <div class="brand-sub">上游路由、账号池与运行状态控制台</div>
+      <div class="side-health"><span class="dot" id="sideDot"></span><span id="sideHealth">正在连接网关</span></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-label">概览</div>
+      <button class="nav-btn" data-route="dashboard"><span class="nav-icon">⌂</span><span>总览</span></button>
+      <button class="nav-btn" data-route="requests"><span class="nav-icon">⇄</span><span>实时请求</span></button>
+      <button class="nav-btn" data-route="history"><span class="nav-icon">◷</span><span>请求历史</span></button>
+      <div class="nav-label">路由</div>
+      <button class="nav-btn" data-route="models"><span class="nav-icon">◇</span><span>模型管理</span></button>
+      <button class="nav-btn" data-route="providers"><span class="nav-icon">⌁</span><span>上游管理</span></button>
+      <button class="nav-btn" data-route="speed"><span class="nav-icon">↯</span><span>上游测速</span></button>
+      <div class="nav-label">系统</div>
+      <button class="nav-btn" data-route="accounts"><span class="nav-icon">◎</span><span>账号管理</span></button>
+      <button class="nav-btn" data-route="settings"><span class="nav-icon">⚙</span><span>设置与安全</span></button>
+    </nav>
+    <div class="side-foot">
+      <div id="sideVersion">运行层：—</div>
+    </div>
+  </aside>
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+  <div class="shell">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" aria-label="打开导航">☰</button>
+      <div class="top-title" id="topTitle">总览</div>
+      <div class="top-spacer"></div>
+      <button class="proxy-chip" id="proxyChip" title="点击复制代理地址">代理地址：—</button>
+      <button class="icon-btn" id="refreshBtn" title="刷新">↻</button>
+    </header>
+
+    <main class="content">
+      <section class="page" data-page="dashboard">
+        <div class="page-head">
+          <div><h1 class="page-title">总览</h1><div class="page-desc">只保留日常最需要看的网关状态、最近请求和异常。</div></div>
+        </div>
+        <div class="grid stats" id="dashStats"></div>
+        <div class="split">
+          <div class="card">
+            <h2 class="card-title">当前运行状态</h2>
+            <div class="card-sub">活动中的流式请求会实时显示；接近空闲超时阈值时会标记警告。</div>
+            <div class="list" id="dashRequests" style="margin-top:12px"></div>
+          </div>
+          <div class="card">
+            <h2 class="card-title">最近异常</h2>
+            <div class="card-sub">来自代理请求历史的最近错误。</div>
+            <div class="list" id="dashErrors" style="margin-top:12px"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h2 class="card-title">最近路由</h2>
+          <div class="card-sub">最近成功或失败的请求及最终实际上游。</div>
+          <div class="list" id="dashHistory" style="margin-top:12px"></div>
+        </div>
+      </section>
+
+      <section class="page" data-page="models">
+        <div class="page-head">
+          <div><h1 class="page-title">模型管理</h1><div class="page-desc">每个模型独立探测、测试和校验；复杂路由配置进入专用上游页面。</div></div>
+          <div class="actions"><button class="btn" id="fetchOfficialBtn">拉取最新模型</button></div>
+        </div>
+        <div class="toolbar">
+          <input class="field search" id="modelSearch" type="search" placeholder="搜索模型、背后模型或上游…">
+          <button class="btn" id="probeVisibleBtn">探测当前筛选模型</button>
+        </div>
+        <div class="model-grid" id="modelGrid"></div>
+      </section>
+
+      <section class="page" data-page="providers">
+        <div class="page-head">
+          <div><h1 class="page-title">上游管理</h1><div class="page-desc">路由模式、排序、优先级和排除全部集中在这里，不再藏在小三角里。</div></div>
+        </div>
+        <div class="toolbar">
+          <select class="field" id="providerModel"></select>
+          <button class="btn" id="providerProbeBtn">探测此模型</button>
+          <button class="btn primary" id="providerRouteTestBtn">测试当前路由</button>
+          <button class="btn" id="providerValidateBtn">校验全部上游</button>
+        </div>
+        <div id="routeTestResult" class="inline-result route-test-result hidden"></div>
+        <div class="provider-layout">
+          <div>
+            <div class="card">
+              <h2 class="card-title">路由策略</h2>
+              <div class="form-row">
+                <div class="form-label">路由模式<span class="form-help">严格钉住：逐个只使用指定上游。优先+回退：允许网关按指定顺序回退。</span></div>
+                <select id="routeMode"><option value="strict">严格钉住</option><option value="preferred">优先 + 回退</option></select>
+              </div>
+              <div class="form-row">
+                <div class="form-label">排序策略<span class="form-help">没有指定优先上游时，也可以让网关按指标选择。</span></div>
+                <select id="routeSort">
+                  <option value="">网关智能选择</option>
+                  <option value="cost">最低成本</option>
+                  <option value="ttft">最快首包</option>
+                  <option value="tps">最高吞吐</option>
+                </select>
+              </div>
+            </div>
+            <div class="card">
+              <h2 class="card-title">优先上游</h2>
+              <div class="card-sub">编号就是实际尝试顺序。手机端使用清晰的“上移 / 下移”，不再只显示小箭头。</div>
+              <div class="list" id="priorityList" style="margin-top:12px"></div>
+            </div>
+            <div class="card">
+              <h2 class="card-title">排除上游</h2>
+              <div class="card-sub">被排除的上游不会参与自动选择或回退。</div>
+              <div class="list" id="excludeList" style="margin-top:12px"></div>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+                <div><h2 class="card-title">全部上游</h2><div class="card-sub" id="providerSummary">—</div><div class="validation-legend" id="providerLegend"></div></div>
+              </div>
+              <div class="toolbar" style="margin-top:12px">
+                <input class="field" id="providerSearch" type="search" placeholder="筛选上游…">
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:12px">
+                <input class="field" id="customProvider" type="text" placeholder="手动收录上游 slug">
+                <button class="btn" id="addProviderBtn">加入</button>
+              </div>
+              <div class="list" id="providerList"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" data-page="speed">
+        <div class="page-head">
+          <div><h1 class="page-title">上游测速</h1><div class="page-desc">按模型选择供应商逐个测速，手机端直接显示排行榜卡片。</div></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <select class="field" id="speedModel"></select>
+            <button class="btn" id="speedAllBtn">全选</button>
+            <button class="btn" id="speedNoneBtn">清空</button>
+            <button class="btn primary" id="speedRunBtn">开始测速</button>
+            <button class="btn danger hidden" id="speedCancelBtn">停止测速</button>
+          </div>
+          <div class="speed-picks" id="speedPicks"></div>
+          <div id="speedProgressWrap" class="hidden">
+            <div class="card-sub" id="speedProgressText" style="margin-top:12px">准备中…</div>
+            <div class="progress"><i id="speedProgressBar"></i></div>
+          </div>
+        </div>
+        <div class="speed-grid" id="speedResults"></div>
+      </section>
+
+      <section class="page" data-page="accounts">
+        <div class="page-head">
+          <div><h1 class="page-title">账号管理</h1><div class="page-desc">维护 Cline Pass 账号池、轮询方式和启用状态。</div></div>
+          <div class="actions"><button class="btn" id="addAccountBtn">添加账号</button><button class="btn primary" id="saveAccountsBtn">保存</button></div>
+        </div>
+        <div class="card">
+          <div class="form-row">
+            <div class="form-label">账号模式<span class="form-help">单账号使用指定账号；轮询会在所有启用账号间切换。</span></div>
+            <select id="accountMode"><option value="single">单账号（手动指定）</option><option value="roundrobin">账号池轮询</option></select>
+          </div>
+          <div class="form-row">
+            <div class="form-label">密钥显示</div>
+            <label class="checkline"><input type="checkbox" id="showAccountKeys"> 显示 API Key</label>
+          </div>
+        </div>
+        <div class="list" id="accountList" style="margin-top:14px"></div>
+      </section>
+
+      <section class="page" data-page="requests">
+        <div class="page-head">
+          <div><h1 class="page-title">实时请求</h1><div class="page-desc">查看正在生成的模型、目标上游、最后数据时间；异常连接可单独终止。</div></div>
+          <div class="actions"><button class="btn" id="requestRefreshBtn">立即刷新</button></div>
+        </div>
+        <div class="grid stats" id="requestStats"></div>
+        <div class="list" id="requestList" style="margin-top:14px"></div>
+      </section>
+
+      <section class="page" data-page="history">
+        <div class="page-head">
+          <div><h1 class="page-title">请求历史</h1><div class="page-desc">最近 100 条代理请求。点击一条记录可查看尝试序列和错误详情。</div></div>
+        </div>
+        <div class="toolbar">
+          <input class="field search" id="historySearch" type="search" placeholder="搜索模型、账号或上游…">
+          <select class="field" id="historyFilter" style="min-width:150px">
+            <option value="all">全部</option><option value="ok">仅成功</option><option value="error">仅异常</option>
+          </select>
+        </div>
+        <div class="list" id="historyList"></div>
+        <button class="btn hidden" id="historyMoreBtn" style="margin-top:12px;width:100%">显示更多</button>
+      </section>
+
+      <section class="page" data-page="settings">
+        <div class="page-head">
+          <div><h1 class="page-title">设置与安全</h1><div class="page-desc">低频配置集中在这里，不占用日常页面空间。</div></div>
+        </div>
+        <div class="card">
+          <h2 class="card-title">访问与安全</h2>
+          <div class="form-row">
+            <div class="form-label">代理密钥<span class="form-help">留空表示关闭下游鉴权。修改后客户端也需要使用新密钥。</span></div>
+            <input id="proxyKeyInput" type="password" placeholder="空 = 关闭鉴权">
+          </div>
+          <div class="form-row">
+            <div class="form-label">公网代理地址<span class="form-help">本机使用可留空；公网部署填写外部基础地址，不含 /v1。</span></div>
+            <input id="publicBaseInput" type="text" placeholder="例如 https://cline.example.com">
+          </div>
+          <div class="form-row">
+            <div class="form-label">模型目录<span class="form-help">开启后 /v1/models 会同时暴露完整公开目录。</span></div>
+            <label class="checkline"><input type="checkbox" id="exposeCatalogInput"> 向客户端暴露完整目录</label>
+          </div>
+          <div class="actions" style="margin-top:14px"><button class="btn primary" id="saveSecurityBtn">保存访问设置</button><button class="btn" id="showProxyKeyBtn">显示 / 隐藏密钥</button></div>
+        </div>
+        <div class="card">
+          <h2 class="card-title">稳定性层</h2>
+          <div class="form-row"><div class="form-label">SSE 空闲保护</div><div id="idleTimeoutInfo" class="muted" style="padding-top:10px">—</div></div>
+          <div class="form-row"><div class="form-label">累计卡流</div><div id="stalledInfo" class="muted" style="padding-top:10px">—</div></div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+            <div><h2 class="card-title">完整模型目录</h2><div class="card-sub" id="catalogCount">—</div></div>
+            <button class="btn" id="refreshOfficialBtn">拉取最新订阅模型</button>
+          </div>
+          <input class="field" id="catalogSearch" type="search" placeholder="过滤模型目录…" style="margin-top:12px">
+          <div class="catalog-list" id="catalogList" style="margin-top:10px"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="login hidden" id="loginOverlay">
+  <div class="login-box">
+    <div class="login-title">进入 Cline Pass V3</div>
+    <div class="login-desc">当前部署启用了代理密钥保护。密钥只保存在本机浏览器 localStorage，并作为 X-Admin-Key 访问管理 API。</div>
+    <input id="loginKey" type="password" placeholder="代理密钥">
+    <div id="loginError" class="bad" style="font-size:11px;margin-top:8px"></div>
+    <button class="btn primary" id="loginBtn" style="width:100%;margin-top:12px">进入控制台</button>
+  </div>
+</div>
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+const $ = (s, root=document) => root.querySelector(s);
+const $$ = (s, root=document) => [...root.querySelectorAll(s)];
+const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString() : '—';
+const fmtDateTime = ts => ts ? new Date(ts).toLocaleString() : '—';
+const fmtDur = ms => !Number.isFinite(Number(ms)) ? '—' : ms < 1000 ? `${Math.round(ms)}ms` : ms < 60000 ? `${(ms/1000).toFixed(ms<10000?1:0)}s` : ms < 3600000 ? `${Math.round(ms/60000)}m` : `${(ms/3600000).toFixed(1)}h`;
+const fmtNum = (n,d=1) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—';
+const shortModel = id => String(id||'').replace(/^cline-pass\//,'');
+const sortLabel = v => ({cost:'最低成本',ttft:'最快首包',tps:'最高吞吐'}[v] || '网关智能选择');
+const modeLabel = v => v === 'preferred' ? '优先 + 回退' : '严格钉住';
+const stateLabel = v => ({ok:'可用',limited:'限流',bad:'不可用',auth:'鉴权失败',unknown:'未知'}[v] || v || '未知');
+
+let AUTH_KEY = localStorage.getItem('cps_key') || '';
+let META = null, DATA = null, ACC = null, SECURITY = null, HISTORY = [], RUNTIME = null;
+let currentRoute = 'dashboard', providerModelId = '', historyLimit = 25;
+let MODEL_RESULTS = new Map(), VALIDATION_RESULTS = new Map(), PROVIDER_TEST_RESULTS = new Map(), speedAbort = null, speedRunning = false;
+
+function toast(message, kind='ok', timeout=3200){
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = message;
+  $('#toastWrap').appendChild(el);
+  setTimeout(()=>el.remove(), timeout);
+}
+function errMsg(e){
+  if (!e) return '未知错误';
+  if (typeof e === 'string') return e;
+  return e?.error?.message || e?.error || e?.message || JSON.stringify(e);
+}
+async function rawApi(path, body, signal){
+  const headers = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (AUTH_KEY) headers['X-Admin-Key'] = AUTH_KEY;
+  const res = await fetch(path, {method:body===undefined?'GET':'POST',headers,body:body===undefined?undefined:JSON.stringify(body),signal});
+  let out = null;
+  try { out = await res.json(); } catch { out = {error:{message:`HTTP ${res.status}`}}; }
+  if (res.status === 401){
+    $('#loginOverlay').classList.remove('hidden');
+    throw new Error('代理密钥错误或已失效');
+  }
+  if (!res.ok) throw new Error(errMsg(out));
+  return out;
+}
+const api = (path, body) => rawApi(path, body);
+
+async function loadMeta(){
+  const res = await fetch('/api/meta');
+  META = await res.json();
+  if (META.authRequired && !AUTH_KEY) $('#loginOverlay').classList.remove('hidden');
+}
+async function loadCore(){
+  const jobs = [
+    api('/api/models'),
+    api('/api/accounts'),
+    api('/api/security'),
+    api('/api/history'),
+    api('/api/runtime').catch(()=>({version:'fallback',uptimeMs:0,streamIdleTimeoutMs:0,activeStreams:[],stalledTotal:0}))
+  ];
+  [DATA, ACC, SECURITY, HISTORY, RUNTIME] = await Promise.all(jobs);
+  HISTORY = HISTORY?.history || [];
+  providerModelId ||= DATA?.subscription?.[0]?.id || '';
+  renderAll();
+}
+async function refreshRuntime(){
+  try {
+    RUNTIME = await api('/api/runtime');
+    renderHealth();
+    if (currentRoute === 'dashboard') renderDashboard();
+    if (currentRoute === 'requests') renderRequests();
+    if (currentRoute === 'settings') renderSettingsRuntime();
+  } catch {}
+}
+async function refreshHistory(){
+  try { HISTORY = (await api('/api/history')).history || []; } catch {}
+}
+
+function routeFromHash(){
+  const raw = location.hash.replace(/^#/,'') || 'dashboard';
+  const [name, qs=''] = raw.split('?');
+  const allowed = ['dashboard','models','providers','speed','accounts','requests','history','settings'];
+  currentRoute = allowed.includes(name) ? name : 'dashboard';
+  const p = new URLSearchParams(qs);
+  if (p.get('model')) providerModelId = p.get('model');
+  $$('.page').forEach(x=>x.classList.toggle('active', x.dataset.page === currentRoute));
+  $$('.nav-btn').forEach(x=>x.classList.toggle('active', x.dataset.route === currentRoute));
+  const labels={dashboard:'总览',models:'模型管理',providers:'上游管理',speed:'上游测速',accounts:'账号管理',requests:'实时请求',history:'请求历史',settings:'设置与安全'};
+  $('#topTitle').textContent = labels[currentRoute];
+  document.body.classList.remove('drawer-open');
+  renderCurrent();
+}
+function go(route, params={}){
+  const qs = new URLSearchParams(params).toString();
+  location.hash = route + (qs ? `?${qs}` : '');
+}
+function renderCurrent(){
+  if (!DATA) return;
+  if (currentRoute==='dashboard') renderDashboard();
+  if (currentRoute==='models') renderModels();
+  if (currentRoute==='providers') renderProviders();
+  if (currentRoute==='speed') renderSpeed();
+  if (currentRoute==='accounts') renderAccounts();
+  if (currentRoute==='requests') renderRequests();
+  if (currentRoute==='history') renderHistory();
+  if (currentRoute==='settings') renderSettings();
+}
+function renderAll(){
+  $('#proxyChip').textContent = `代理地址：${DATA?.proxyBase || META?.proxyBase || '—'}`;
+  renderHealth();
+  renderCurrent();
+}
+function renderHealth(){
+  if (!RUNTIME) return;
+  const streams = RUNTIME.activeStreams || [];
+  const near = streams.some(s => (s.idleMs||0) > (RUNTIME.streamIdleTimeoutMs||90000)*.7);
+  $('#sideDot').className = `dot ${near?'warn':''}`;
+  $('#sideHealth').textContent = near ? '有请求接近卡流阈值' : '网关运行正常';
+  $('#sideVersion').textContent = `运行层：${RUNTIME.version || 'V3'} · ${fmtDur(RUNTIME.uptimeMs)}`;
+}
+function modelById(id){ return DATA?.subscription?.find(x=>x.id===id); }
+function validationEntry(modelId,u){
+  return VALIDATION_RESULTS.get(modelId)?.[u] || null;
+}
+function upstreamState(meta,u,modelId=providerModelId){
+  const cached = validationEntry(modelId,u);
+  const x = cached || meta?.upstreamStatus?.[u];
+  return typeof x === 'string' ? x : x?.status || 'unknown';
+}
+function upstreamDetail(meta,u){ return meta?.upstreamDetail?.[u] || null; }
+function statusPill(st){
+  const cls=['ok','limited','bad','auth'].includes(st)?st:'unknown';
+  const icon=st==='ok'?'●':st==='limited'?'●':(st==='bad'||st==='auth')?'●':'○';
+  return `<span class="status-pill ${cls}">${icon} ${esc(stateLabel(st))}</span>`;
+}
+function providerMatch(expected,actual){
+  const a=String(expected||'').trim().toLowerCase(), b=String(actual||'').trim().toLowerCase();
+  return !!a && !!b && (a===b || b.endsWith('/'+a) || a.endsWith('/'+b));
+}
+
+function renderDashboard(){
+  const subs = DATA?.subscription || [];
+  const unique = new Set();
+  subs.forEach(s => (s.meta?.upstreams||[]).forEach(u=>unique.add(u)));
+  const accounts=(ACC?.accounts||[]);
+  const activeAccounts=accounts.filter(a=>a.enabled!==false).length;
+  const streams=RUNTIME?.activeStreams||[];
+  const maxIdle=streams.reduce((m,s)=>Math.max(m,s.idleMs||0),0);
+  $('#dashStats').innerHTML = [
+    ['活动请求',streams.length, streams.length ? `最长空闲 ${fmtDur(maxIdle)}`:'当前无生成请求'],
+    ['卡流次数',RUNTIME?.stalledTotal||0,`阈值 ${fmtDur(RUNTIME?.streamIdleTimeoutMs||0)}`],
+    ['可用账号',`${activeAccounts}/${accounts.length}`,ACC?.mode==='roundrobin'?'轮询模式':'单账号模式'],
+    ['模型 / 上游',`${subs.length} / ${unique.size}`,'已收录订阅模型 / 唯一上游']
+  ].map(([k,v,n])=>`<div class="stat"><div class="stat-k">${esc(k)}</div><div class="stat-v">${esc(v)}</div><div class="stat-note">${esc(n)}</div></div>`).join('');
+
+  $('#dashRequests').innerHTML = streams.length ? streams.slice(0,6).map(s=>`
+    <div class="list-item">
+      <span class="dot ${(s.idleMs||0)>(RUNTIME.streamIdleTimeoutMs||90000)*.7?'warn':''}"></span>
+      <div class="list-main"><div class="list-title">${esc(shortModel(s.model))}</div>
+      <div class="list-sub">${esc(s.target||'auto')} · 空闲 ${fmtDur(s.idleMs)} · ${Math.round((s.bytes||0)/1024)} KB</div></div>
+      <span class="badge dim">#${s.id}</span>
+    </div>`).join('') : '<div class="empty">当前没有活动中的流式请求</div>';
+
+  const errors = HISTORY.filter(h=>h.error).slice(0,5);
+  $('#dashErrors').innerHTML = errors.length ? errors.map(h=>`
+    <div class="list-item">
+      <span class="dot bad"></span><div class="list-main"><div class="list-title">${esc(shortModel(h.model))}</div>
+      <div class="list-sub">${esc(String(h.error).slice(0,140))}</div></div><span class="badge bad">${fmtTime(h.ts)}</span>
+    </div>`).join('') : '<div class="empty">最近没有记录到请求异常</div>';
+
+  $('#dashHistory').innerHTML = HISTORY.slice(0,6).map(h=>`
+    <div class="list-item">
+      <span class="dot ${h.error?'bad':''}"></span><div class="list-main">
+        <div class="list-title">${esc(shortModel(h.model))}</div>
+        <div class="list-sub">${esc(h.provider||'unknown')} · ${fmtDur(h.ms)} · ${h.stream?'流式':'非流式'}${h.account?' · '+esc(h.account):''}</div>
+      </div><span class="badge ${h.error?'bad':'ok'}">${h.error?'失败':'成功'}</span>
+    </div>`).join('') || '<div class="empty">暂无请求历史</div>';
+}
+function routingSummary(s){
+  const cfg=s.config||{}, ups=cfg.upstreams||[], ex=cfg.exclude||[];
+  return `<div class="route-summary">
+    <div class="route-line"><span class="route-k">路由</span><span class="route-v">${esc(modeLabel(cfg.pinMode))} · ${esc(sortLabel(cfg.sort))}</span></div>
+    <div class="route-line"><span class="route-k">优先</span><span class="route-v">${ups.length?ups.map((u,i)=>`${i+1}. ${esc(u)}`).join(' → '):'<span class="muted">未指定，网关自动选择</span>'}</span></div>
+    <div class="route-line"><span class="route-k">排除</span><span class="route-v">${ex.length?ex.map(esc).join(' · '):'<span class="muted">无</span>'}</span></div>
+  </div>`;
+}
+function renderModels(){
+  const q=$('#modelSearch').value.trim().toLowerCase();
+  const list=(DATA.subscription||[]).filter(s=>{
+    const blob=[s.id,s.meta?.canonicalSlug,s.meta?.lastProvider,...(s.meta?.upstreams||[])].join(' ').toLowerCase();
+    return !q || blob.includes(q);
+  });
+  $('#modelGrid').innerHTML=list.map(s=>{
+    const m=s.meta||{}, ups=m.upstreams||[], result=MODEL_RESULTS.get(s.id);
+    const pipeline=m.pinnable ? `<span class="badge ok">可精确钉住 · ${m.pipeline==='planner'?'Vercel':'OpenRouter'}</span>` : '<span class="badge warn">建议先探测</span>';
+    return `<article class="model-card" data-model="${esc(s.id)}">
+      <div class="model-head"><div style="min-width:0;flex:1"><div class="model-name">${esc(shortModel(s.id))}</div><div class="model-id">${esc(s.id)}</div></div>${pipeline}</div>
+      <div class="model-meta">
+        <div class="mini-stat"><div class="mini-k">背后模型</div><div class="mini-v" title="${esc(m.canonicalSlug||'')}">${esc(m.canonicalSlug||'—')}</div></div>
+        <div class="mini-stat"><div class="mini-k">上游数量</div><div class="mini-v">${ups.length || '—'}</div></div>
+        <div class="mini-stat"><div class="mini-k">最近命中</div><div class="mini-v" title="${esc(m.lastProvider||'')}">${esc(m.lastProvider||'未探测')}</div></div>
+      </div>
+      ${routingSummary(s)}
+      <div class="model-actions">
+        <button class="btn small" data-model-action="probe" data-model="${esc(s.id)}">探测</button>
+        <button class="btn small" data-model-action="test" data-model="${esc(s.id)}">测试</button>
+        <button class="btn small" data-model-action="validate" data-model="${esc(s.id)}">校验</button>
+      </div>
+      <button class="manage-btn" data-model-action="manage" data-model="${esc(s.id)}"><span>管理上游与路由设置</span><span>›</span></button>
+      ${result?`<div class="inline-result ${result.ok?'good':'bad'}">${esc(result.text)}</div>`:''}
+    </article>`;
+  }).join('') || '<div class="empty">没有匹配的模型</div>';
+}
+async function modelAction(action,id,btn){
+  const old=btn?.textContent; if(btn){btn.disabled=true;btn.textContent='处理中…'}
+  try{
+    if(action==='manage'){ providerModelId=id; go('providers',{model:id}); return; }
+    if(action==='probe'){
+      const r=await api('/api/probe',{model:id});
+      MODEL_RESULTS.set(id,{ok:true,text:`探测完成：${r.finalProvider||r.provider||'已获取上游信息'}`});
+      toast(`${shortModel(id)} 探测完成`);
+    }
+    if(action==='test'){
+      const r=await api('/api/test',{model:id});
+      const txt=r.ok?`测试成功 · ${r.actual||'unknown'} · ${fmtDur(r.ms)}`:`测试失败 · ${r.error||'未知错误'}`;
+      MODEL_RESULTS.set(id,{ok:!!r.ok,text:txt});
+      toast(txt,r.ok?'ok':'bad',4500);
+    }
+    if(action==='validate'){
+      const r=await api('/api/validate-upstreams',{model:id});
+      VALIDATION_RESULTS.set(id,r.results||{});
+      const s=r.summary||{};
+      const txt=`校验完成 · 可用 ${s.ok||0} · 限流 ${s.limited||0} · 不可用 ${s.bad||0} · 鉴权失败 ${s.auth||0}`;
+      MODEL_RESULTS.set(id,{ok:true,text:txt}); toast(txt);
+    }
+    [DATA,HISTORY]=await Promise.all([api('/api/models'),api('/api/history').then(x=>x.history||[])]);
+    renderModels();
+  }catch(e){ MODEL_RESULTS.set(id,{ok:false,text:errMsg(e)}); toast(errMsg(e),'bad',5000); renderModels(); }
+  finally{ if(btn){btn.disabled=false;btn.textContent=old} }
+}
+
+function ensureProviderModel(){
+  if (!providerModelId || !modelById(providerModelId)) providerModelId=DATA.subscription?.[0]?.id||'';
+}
+function renderProviders(){
+  ensureProviderModel();
+  $('#providerModel').innerHTML=(DATA.subscription||[]).map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
+  $('#providerModel').value=providerModelId;
+  const s=modelById(providerModelId); if(!s) return;
+  const cfg=s.config||{}, meta=s.meta||{}, all=meta.upstreams||[];
+  $('#routeMode').value=cfg.pinMode==='preferred'?'preferred':'strict';
+  $('#routeSort').value=cfg.sort||'';
+  $('#providerSummary').textContent=`${all.length} 个已收录上游 · 最近命中 ${meta.lastProvider||'—'}`;
+  const validated=VALIDATION_RESULTS.get(providerModelId)||null;
+  if(validated){
+    const counts={ok:0,limited:0,bad:0,auth:0,unknown:0};
+    for(const u of all){ const st=upstreamState(meta,u,providerModelId); counts[st]=(counts[st]||0)+1; }
+    $('#providerLegend').innerHTML=`${statusPill('ok').replace('可用',`可用 ${counts.ok||0}`)}${statusPill('limited').replace('限流',`限流 ${counts.limited||0}`)}${statusPill('bad').replace('不可用',`不可用 ${counts.bad||0}`)}${statusPill('auth').replace('鉴权失败',`鉴权失败 ${counts.auth||0}`)}`;
+  }else{
+    $('#providerLegend').innerHTML=`<span class="status-pill unknown">○ 尚未校验</span><span class="muted" style="font-size:10px;align-self:center">点击“校验全部上游”后会用绿色 / 黄色 / 红色标出状态</span>`;
+  }
+
+  const priority=cfg.upstreams||[];
+  $('#priorityList').innerHTML=priority.length?priority.map((u,i)=>`
+    <div class="list-item priority-row">
+      <div class="priority-no">${i+1}</div>
+      <div class="list-main"><div class="list-title" style="display:flex;gap:7px;align-items:center;flex-wrap:wrap"><span>${esc(u)}</span>${statusPill(upstreamState(meta,u,providerModelId))}</div><div class="list-sub">${esc(upstreamDetail(meta,u)?.name||'')}</div></div>
+      <div class="order-actions">
+        <button class="btn small" data-order="up" data-upstream="${esc(u)}" ${i===0?'disabled':''}>上移</button>
+        <button class="btn small" data-order="down" data-upstream="${esc(u)}" ${i===priority.length-1?'disabled':''}>下移</button>
+        <button class="btn small danger" data-upstream-state="default" data-upstream="${esc(u)}">取消优先</button>
+      </div>
+    </div>`).join(''):'<div class="empty">未设置优先上游，将按排序策略或网关默认策略选择</div>';
+
+  const excluded=cfg.exclude||[];
+  $('#excludeList').innerHTML=excluded.length?excluded.map(u=>`
+    <div class="list-item"><div class="list-main"><div class="list-title" style="display:flex;gap:7px;align-items:center;flex-wrap:wrap"><span>${esc(u)}</span>${statusPill(upstreamState(meta,u,providerModelId))}</div><div class="list-sub">此上游不会参与路由</div></div>
+    <button class="btn small" data-upstream-state="default" data-upstream="${esc(u)}">取消排除</button></div>`).join(''):'<div class="empty">当前没有排除上游</div>';
+
+  const q=$('#providerSearch').value.trim().toLowerCase();
+  const rows=all.filter(u=>!q||u.toLowerCase().includes(q)||(upstreamDetail(meta,u)?.name||'').toLowerCase().includes(q));
+  $('#providerList').innerHTML=rows.map((u,i)=>{
+    const state=priority.includes(u)?'priority':excluded.includes(u)?'exclude':'default';
+    const d=upstreamDetail(meta,u), st=upstreamState(meta,u,providerModelId), rank=priority.indexOf(u);
+    const metrics=[
+      d?.tps!=null?`${fmtNum(d.tps)} tok/s`:null,
+      d?.ttft!=null?`首包 ${fmtNum(d.ttft/1000,2)}s`:null,
+      d?.input!=null?`输入 $${fmtNum(d.input,3)}/M`:null,
+      d?.output!=null?`输出 $${fmtNum(d.output,3)}/M`:null
+    ].filter(Boolean).join(' · ');
+    const test=PROVIDER_TEST_RESULTS.get(`${providerModelId}::${u}`) || null;
+    return `<div class="provider-row status-${['ok','limited','bad','auth'].includes(st)?st:'unknown'}">
+      <div><div class="provider-name"><span>${esc(u)}</span>${rank>=0?`<span class="badge">优先 ${rank+1}</span>`:''}${statusPill(st)}</div>
+      <div class="provider-sub">${esc(d?.name||'')}${metrics?` · ${esc(metrics)}`:''}${validationEntry(providerModelId,u)?.error?` · ${esc(String(validationEntry(providerModelId,u).error).slice(0,120))}`:''}</div></div>
+      <div class="provider-controls">
+        <button class="btn small" data-provider-test="${esc(u)}">测试此上游</button>
+        <div class="segment">
+          <button data-upstream-state="default" data-upstream="${esc(u)}" class="${state==='default'?'on-default':''}">默认</button>
+          <button data-upstream-state="priority" data-upstream="${esc(u)}" class="${state==='priority'?'on-priority':''}">优先</button>
+          <button data-upstream-state="exclude" data-upstream="${esc(u)}" class="${state==='exclude'?'on-exclude':''}">排除</button>
+        </div>
+      </div>
+      ${test?`<div class="provider-test-result ${test.ok?'good':'bad'}">${esc(test.text)}</div>`:''}
+    </div>`;
+  }).join('')||'<div class="empty">没有匹配的上游</div>';
+}
+async function saveModelCfg(model,cfg){
+  await api('/api/config',{perModel:{[model]:{
+    upstreams:[...(cfg.upstreams||[])],exclude:[...(cfg.exclude||[])],
+    pinMode:cfg.pinMode||'strict',sort:cfg.sort||null
+  }}});
+  DATA=await api('/api/models');
+  renderProviders();
+}
+async function setUpstreamState(u,state){
+  const s=modelById(providerModelId), cfg=structuredClone(s.config||{});
+  cfg.upstreams=cfg.upstreams||[]; cfg.exclude=cfg.exclude||[];
+  cfg.upstreams=cfg.upstreams.filter(x=>x!==u); cfg.exclude=cfg.exclude.filter(x=>x!==u);
+  if(state==='priority') cfg.upstreams.push(u);
+  if(state==='exclude') cfg.exclude.push(u);
+  try{await saveModelCfg(providerModelId,cfg);toast(`${u} 已设为${state==='priority'?'优先':state==='exclude'?'排除':'默认'}`)}
+  catch(e){toast(errMsg(e),'bad')}
+}
+async function movePriority(u,dir){
+  const s=modelById(providerModelId), cfg=structuredClone(s.config||{}), a=cfg.upstreams||[], i=a.indexOf(u), j=dir==='up'?i-1:i+1;
+  if(i<0||j<0||j>=a.length)return; [a[i],a[j]]=[a[j],a[i]];
+  try{await saveModelCfg(providerModelId,cfg)}catch(e){toast(errMsg(e),'bad')}
+}
+async function testProvider(u,btn){
+  const old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='测试中…'}
+  try{
+    const r=await api('/api/test',{model:providerModelId,upstream:u,exclude:[],pinMode:'strict'});
+    const matched=!!r.ok && providerMatch(u,r.actual);
+    const text=r.ok
+      ? `${matched?'✓ 指定成功':'✕ 未精确命中'} · 目标 ${u} → 实际 ${r.actual||'unknown'} · ${fmtDur(r.ms)}`
+      : `✕ 测试失败 · ${r.error||'未知错误'}`;
+    PROVIDER_TEST_RESULTS.set(`${providerModelId}::${u}`,{ok:matched,text});
+    toast(text,matched?'ok':'bad',5000);
+  }catch(e){
+    PROVIDER_TEST_RESULTS.set(`${providerModelId}::${u}`,{ok:false,text:`✕ 测试失败 · ${errMsg(e)}`});
+    toast(errMsg(e),'bad',5000);
+  }finally{if(btn){btn.disabled=false;btn.textContent=old}renderProviders()}
+}
+async function testCurrentRoute(btn){
+  const old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='测试中…'}
+  const box=$('#routeTestResult');box.classList.remove('hidden','good','bad');
+  box.textContent='正在按当前已保存路由发送测试请求…';
+  try{
+    const s=modelById(providerModelId), cfg=s?.config||{}, expected=(cfg.upstreams||[])[0]||null;
+    const r=await api('/api/test',{model:providerModelId});
+    const ok=!!r.ok;
+    const pinText=expected?`首选 ${expected}`:'未指定首选上游';
+    box.classList.add(ok?'good':'bad');
+    box.textContent=ok
+      ? `当前路由测试成功 · ${pinText} · 实际命中 ${r.actual||'unknown'} · ${fmtDur(r.ms)}${expected?` · ${providerMatch(expected,r.actual)?'首选命中':'发生回退/未命中首选'}`:''}`
+      : `当前路由测试失败 · ${r.error||'未知错误'}`;
+  }catch(e){box.classList.add('bad');box.textContent=`当前路由测试失败 · ${errMsg(e)}`}
+  finally{if(btn){btn.disabled=false;btn.textContent=old}}
+}
+
+function renderSpeed(){
+  $('#speedModel').innerHTML=(DATA.subscription||[]).map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
+  if(!$('#speedModel').value) $('#speedModel').value=providerModelId||DATA.subscription?.[0]?.id||'';
+  renderSpeedPicks();
+}
+function renderSpeedPicks(){
+  const id=$('#speedModel').value, s=modelById(id), ups=s?.meta?.upstreams||[];
+  const previous=new Set($$('#speedPicks input:checked').map(x=>x.value));
+  $('#speedPicks').innerHTML=ups.map(u=>`<label class="pick"><input type="checkbox" value="${esc(u)}" ${previous.size===0||previous.has(u)?'checked':''}><span>${esc(u)}</span></label>`).join('')||'<div class="empty">此模型暂无上游，请先到模型页探测</div>';
+}
+function renderSpeedResults(results=[]){
+  const sorted=[...results].sort((a,b)=>(Number(b.generationSpeed)||-1)-(Number(a.generationSpeed)||-1));
+  $('#speedResults').innerHTML=sorted.map((r,i)=>{
+    if(!r.ok)return `<div class="speed-card"><div class="speed-rank">#${i+1}</div><div class="speed-title">${esc(r.upstream)}</div><div class="bad" style="font-size:11px;margin-top:8px">${esc(r.error||'测速失败')}</div></div>`;
+    const d=r.detail||{};
+    return `<div class="speed-card">
+      <div class="speed-rank">#${i+1} · ${r.matched===false?'实际供应商不符':'测速成功'}</div>
+      <div class="speed-title">${esc(r.upstream)}</div>
+      <div class="speed-metrics">
+        <div class="metric"><div class="metric-k">生成速度</div><div class="metric-v">${fmtNum(r.generationSpeed)} tok/s</div></div>
+        <div class="metric"><div class="metric-k">体感均速</div><div class="metric-v">${fmtNum(r.perceivedSpeed)} tok/s</div></div>
+        <div class="metric"><div class="metric-k">首包延迟</div><div class="metric-v">${fmtNum((r.firstPacketMs||0)/1000,2)} s</div></div>
+        <div class="metric"><div class="metric-k">输出 token</div><div class="metric-v">${r.completionTokens??'—'}</div></div>
+        <div class="metric"><div class="metric-k">输入价格</div><div class="metric-v">${d.input!=null?'$'+fmtNum(d.input,3)+'/M':'—'}</div></div>
+        <div class="metric"><div class="metric-k">输出价格</div><div class="metric-v">${d.output!=null?'$'+fmtNum(d.output,3)+'/M':'—'}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function runSpeed(){
+  const id=$('#speedModel').value, selected=$$('#speedPicks input:checked').map(x=>x.value);
+  if(!selected.length){toast('请至少选择一个上游','warn');return}
+  speedRunning=true; speedAbort=new AbortController();
+  $('#speedRunBtn').classList.add('hidden');$('#speedCancelBtn').classList.remove('hidden');$('#speedProgressWrap').classList.remove('hidden');
+  const results=[];
+  for(let i=0;i<selected.length;i++){
+    if(speedAbort.signal.aborted)break;
+    $('#speedProgressText').textContent=`正在测速 ${i+1}/${selected.length}：${selected[i]}`;
+    $('#speedProgressBar').style.width=`${i/selected.length*100}%`;
+    try{const r=await rawApi('/api/speed-test',{model:id,upstream:selected[i]},speedAbort.signal);results.push({...r,upstream:selected[i]})}
+    catch(e){if(speedAbort.signal.aborted)break;results.push({ok:false,upstream:selected[i],error:errMsg(e)})}
+    renderSpeedResults(results);
+  }
+  $('#speedProgressBar').style.width='100%';
+  $('#speedProgressText').textContent=speedAbort.signal.aborted?'测速已停止':`测速完成：${results.length}/${selected.length}`;
+  $('#speedRunBtn').classList.remove('hidden');$('#speedCancelBtn').classList.add('hidden');speedRunning=false;
+}
+
+function renderAccounts(){
+  $('#accountMode').value=ACC?.mode||'single';
+  const show=$('#showAccountKeys').checked;
+  const stats=ACC?.stats||{};
+  $('#accountList').innerHTML=(ACC?.accounts||[]).map((a,i)=>{
+    const st=stats[a.name]||{};
+    return `<div class="account-card" data-account-index="${i}">
+      <div class="account-grid">
+        <input type="text" data-acc-field="name" value="${esc(a.name||'')}" placeholder="账号名称">
+        <input type="${show?'text':'password'}" data-acc-field="key" value="${esc(a.key||'')}" placeholder="API Key">
+        <div class="actions">
+          <button class="btn small" data-account-test="${i}">测试</button>
+          <button class="btn small danger" data-account-delete="${i}">删除</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">
+        <label class="checkline"><input type="checkbox" data-acc-field="enabled" ${a.enabled!==false?'checked':''}> 启用</label>
+        <label class="checkline"><input type="radio" name="activeAccount" data-acc-active="${i}" ${Number(ACC.active)===i?'checked':''}> 单账号模式使用</label>
+        <span class="muted" style="font-size:10px">请求 ${st.requests||0} · 最近 ${st.lastUsed?fmtDateTime(st.lastUsed):'未使用'}</span>
+      </div>
+    </div>`;
+  }).join('')||'<div class="empty">暂无账号</div>';
+}
+function collectAccounts(){
+  return $$('#accountList .account-card').map(card=>({
+    name:$('[data-acc-field="name"]',card)?.value.trim(),
+    key:$('[data-acc-field="key"]',card)?.value.trim(),
+    enabled:$('[data-acc-field="enabled"]',card)?.checked!==false
+  })).filter(a=>a.key);
+}
+async function saveAccounts(){
+  const accounts=collectAccounts(), active=Number($('input[name="activeAccount"]:checked')?.dataset.accActive||0);
+  if(!accounts.length){toast('至少保留一个有效账号','bad');return}
+  try{
+    await api('/api/accounts',{accounts,mode:$('#accountMode').value,active});
+    ACC=await api('/api/accounts');renderAccounts();toast('账号配置已保存')
+  }catch(e){toast(errMsg(e),'bad')}
+}
+function addAccount(){
+  ACC.accounts=ACC.accounts||[];ACC.accounts.push({name:`账号${ACC.accounts.length+1}`,key:'',enabled:true});renderAccounts()
+}
+
+function renderRequests(){
+  const streams=RUNTIME?.activeStreams||[], threshold=RUNTIME?.streamIdleTimeoutMs||90000;
+  const maxIdle=streams.reduce((m,s)=>Math.max(m,s.idleMs||0),0), near=streams.filter(s=>(s.idleMs||0)>threshold*.7).length;
+  $('#requestStats').innerHTML=[
+    ['活动请求',streams.length,'当前流式请求'],
+    ['接近卡流',near,`超过阈值 70%`],
+    ['最长空闲',fmtDur(maxIdle),`自动中止 ${fmtDur(threshold)}`],
+    ['累计卡流',RUNTIME?.stalledTotal||0,'本次进程运行期']
+  ].map(([k,v,n])=>`<div class="stat"><div class="stat-k">${k}</div><div class="stat-v">${esc(v)}</div><div class="stat-note">${n}</div></div>`).join('');
+  $('#requestList').innerHTML=streams.map(s=>{
+    const danger=(s.idleMs||0)>threshold*.7;
+    return `<div class="request-card">
+      <div class="request-head"><div><div class="list-title">${esc(shortModel(s.model))}</div><div class="list-sub">请求 #${s.id} · ${esc(s.account||'未记录账号')}</div></div>
+      <span class="badge ${danger?'warn':'ok'}">${danger?'接近超时':'正常'}</span></div>
+      <div class="request-grid">
+        <div class="mini-stat"><div class="mini-k">目标上游</div><div class="mini-v">${esc(s.target||'auto')}</div></div>
+        <div class="mini-stat"><div class="mini-k">已运行</div><div class="mini-v">${fmtDur(Date.now()-(s.startedAt||Date.now()))}</div></div>
+        <div class="mini-stat"><div class="mini-k">最后数据</div><div class="mini-v">${fmtDur(s.idleMs)} 前</div></div>
+        <div class="mini-stat"><div class="mini-k">已传输</div><div class="mini-v">${Math.round((s.bytes||0)/1024)} KB</div></div>
+      </div>
+      <button class="btn small danger" data-abort-stream="${s.id}" style="margin-top:10px">终止此请求</button>
+    </div>`;
+  }).join('')||'<div class="empty">当前没有活动请求</div>';
+}
+async function abortStream(id){
+  if(!confirm(`确认终止请求 #${id}？只会中止这一条流，不会重启整个网关。`))return;
+  try{await api('/api/runtime/abort',{id:Number(id)});toast(`请求 #${id} 已发送终止指令`,'warn');setTimeout(refreshRuntime,400)}
+  catch(e){toast(errMsg(e),'bad')}
+}
+
+function renderHistory(){
+  const q=$('#historySearch').value.trim().toLowerCase(), f=$('#historyFilter').value;
+  let rows=HISTORY.filter(h=>{
+    if(f==='ok'&&h.error)return false;if(f==='error'&&!h.error)return false;
+    const blob=[h.model,h.account,h.provider,h.canonical,h.error,...(h.attempts||[])].join(' ').toLowerCase();
+    return !q||blob.includes(q);
+  });
+  const shown=rows.slice(0,historyLimit);
+  $('#historyList').innerHTML=shown.map((h,i)=>`
+    <div class="history-row" data-history-index="${i}">
+      <div class="history-head">
+        <div class="history-time">${fmtTime(h.ts)}</div>
+        <div class="history-main"><div class="list-title">${esc(shortModel(h.model))}</div>
+        <div class="list-sub">${esc(h.provider||'unknown')} · ${esc(h.account||'—')} · ${fmtDur(h.ms)} · ${h.stream?'流式':'非流式'}</div></div>
+        <span class="badge ${h.error?'bad':'ok'}">${h.error?'失败':'成功'}</span>
+      </div>
+      <div class="history-detail">
+        <div><b>完整模型：</b>${esc(h.model||'—')}</div>
+        <div><b>背后模型：</b>${esc(h.canonical||'—')}</div>
+        <div><b>尝试序列：</b>${esc((h.attempts||[]).join(' → ')||'auto')}</div>
+        <div><b>时间：</b>${esc(fmtDateTime(h.ts))}</div>
+        ${h.error?`<div class="bad"><b>错误：</b>${esc(h.error)}</div>`:''}
+        ${h.trace?`<div><b>Trace：</b>${esc(JSON.stringify(h.trace))}</div>`:''}
+      </div>
+    </div>`).join('')||'<div class="empty">没有匹配的历史记录</div>';
+  $('#historyMoreBtn').classList.toggle('hidden',shown.length>=rows.length);
+}
+function renderSettingsRuntime(){
+  $('#idleTimeoutInfo').textContent=RUNTIME?`${fmtDur(RUNTIME.streamIdleTimeoutMs)}（通过 STREAM_IDLE_TIMEOUT_MS 环境变量设置）`:'—';
+  $('#stalledInfo').textContent=RUNTIME?`${RUNTIME.stalledTotal||0} 次`:'—';
+}
+function renderSettings(){
+  $('#proxyKeyInput').value=SECURITY?.proxyKey||'';
+  $('#publicBaseInput').value=SECURITY?.publicBaseUrl||'';
+  $('#exposeCatalogInput').checked=!!SECURITY?.exposeCatalog;
+  renderSettingsRuntime();renderCatalog();
+}
+function renderCatalog(){
+  const q=$('#catalogSearch').value.trim().toLowerCase(), cat=DATA?.catalog||[];
+  $('#catalogCount').textContent=`公开目录 ${cat.length} 个模型；订阅模型 ${DATA?.subscription?.length||0} 个`;
+  const rows=cat.filter(x=>!q||String(x).toLowerCase().includes(q)).slice(0,400);
+  $('#catalogList').innerHTML=rows.map(x=>`<div class="catalog-item mono">${esc(x)}</div>`).join('')||'<div class="empty">没有匹配模型</div>';
+}
+async function saveSecurity(){
+  try{
+    const r=await api('/api/security',{proxyKey:$('#proxyKeyInput').value.trim(),publicBaseUrl:$('#publicBaseInput').value.trim(),exposeCatalog:$('#exposeCatalogInput').checked});
+    SECURITY={...SECURITY,...r};AUTH_KEY=SECURITY.proxyKey||'';
+    if(AUTH_KEY)localStorage.setItem('cps_key',AUTH_KEY);else localStorage.removeItem('cps_key');
+    DATA=await api('/api/models');renderAll();toast('访问设置已保存')
+  }catch(e){toast(errMsg(e),'bad')}
+}
+
+async function fetchOfficial(btn){
+  const old=btn.textContent;btn.disabled=true;btn.textContent='拉取中…';
+  try{const r=await api('/api/fetch-official-models',{});DATA=await api('/api/models');toast(`模型清单已更新：新增 ${r.added?.length||0} 个`);renderCurrent()}
+  catch(e){toast(errMsg(e),'bad')}finally{btn.disabled=false;btn.textContent=old}
+}
+async function probeVisible(){
+  const ids=$$('#modelGrid .model-card').map(x=>x.dataset.model);
+  if(!ids.length)return;const btn=$('#probeVisibleBtn'),old=btn.textContent;btn.disabled=true;
+  for(let i=0;i<ids.length;i++){
+    btn.textContent=`探测 ${i+1}/${ids.length}`;
+    try{await api('/api/probe',{model:ids[i]});MODEL_RESULTS.set(ids[i],{ok:true,text:'探测完成'})}
+    catch(e){MODEL_RESULTS.set(ids[i],{ok:false,text:errMsg(e)})}
+    renderModels();
+  }
+  DATA=await api('/api/models');btn.disabled=false;btn.textContent=old;renderModels();toast('当前筛选模型探测完成')
+}
+
+document.addEventListener('click',async e=>{
+  const nav=e.target.closest('[data-route]');if(nav){go(nav.dataset.route);return}
+  const ma=e.target.closest('[data-model-action]');if(ma){await modelAction(ma.dataset.modelAction,ma.dataset.model,ma);return}
+  const st=e.target.closest('[data-upstream-state]');if(st){await setUpstreamState(st.dataset.upstream,st.dataset.upstreamState);return}
+  const od=e.target.closest('[data-order]');if(od){await movePriority(od.dataset.upstream,od.dataset.order);return}
+  const pt=e.target.closest('[data-provider-test]');if(pt){await testProvider(pt.dataset.providerTest,pt);return}
+  const ab=e.target.closest('[data-abort-stream]');if(ab){await abortStream(ab.dataset.abortStream);return}
+  const at=e.target.closest('[data-account-test]');if(at){
+    const card=at.closest('.account-card'),key=$('[data-acc-field="key"]',card).value.trim();
+    if(!key)return toast('请先填写 Key','warn');const old=at.textContent;at.disabled=true;at.textContent='测试中…';
+    try{const r=await api('/api/accounts/test',{key});toast(r.ok?`账号可用 · ${fmtDur(r.ms)}`:r.error,r.ok?'ok':'bad')}
+    catch(err){toast(errMsg(err),'bad')}finally{at.disabled=false;at.textContent=old}return
+  }
+  const ad=e.target.closest('[data-account-delete]');if(ad){
+    if(confirm('确认删除这个账号？')){ACC.accounts.splice(Number(ad.dataset.accountDelete),1);renderAccounts()}return
+  }
+  const hr=e.target.closest('.history-row');if(hr){hr.classList.toggle('open');return}
+});
+$('#drawerBackdrop').addEventListener('click',()=>document.body.classList.remove('drawer-open'));
+$('#menuBtn').addEventListener('click',()=>document.body.classList.toggle('drawer-open'));
+$('#refreshBtn').addEventListener('click',async()=>{try{await loadCore();toast('已刷新')}catch(e){toast(errMsg(e),'bad')}});
+$('#proxyChip').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(DATA?.proxyBase||META?.proxyBase||'');toast('代理地址已复制')}catch{toast('复制失败','bad')}});
+$('#modelSearch').addEventListener('input',renderModels);
+$('#probeVisibleBtn').addEventListener('click',probeVisible);
+$('#fetchOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
+$('#refreshOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
+$('#providerModel').addEventListener('change',e=>{providerModelId=e.target.value;go('providers',{model:providerModelId});renderProviders()});
+$('#providerSearch').addEventListener('input',renderProviders);
+$('#routeMode').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.pinMode=e.target.value;try{await saveModelCfg(providerModelId,c);toast('路由模式已保存')}catch(err){toast(errMsg(err),'bad')}});
+$('#routeSort').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.sort=e.target.value||null;try{await saveModelCfg(providerModelId,c);toast('排序策略已保存')}catch(err){toast(errMsg(err),'bad')}});
+$('#providerProbeBtn').addEventListener('click',async e=>{await modelAction('probe',providerModelId,e.currentTarget);DATA=await api('/api/models');renderProviders()});
+$('#providerRouteTestBtn').addEventListener('click',e=>testCurrentRoute(e.currentTarget));
+$('#providerValidateBtn').addEventListener('click',async e=>{await modelAction('validate',providerModelId,e.currentTarget);DATA=await api('/api/models');renderProviders()});
+$('#addProviderBtn').addEventListener('click',async()=>{
+  const u=$('#customProvider').value.trim();if(!u)return;
+  try{await api('/api/watch-upstream',{model:providerModelId,upstream:u});$('#customProvider').value='';DATA=await api('/api/models');renderProviders();toast('上游已加入监查列表')}
+  catch(e){toast(errMsg(e),'bad')}
+});
+$('#speedModel').addEventListener('change',renderSpeedPicks);
+$('#speedAllBtn').addEventListener('click',()=>$$('#speedPicks input').forEach(x=>x.checked=true));
+$('#speedNoneBtn').addEventListener('click',()=>$$('#speedPicks input').forEach(x=>x.checked=false));
+$('#speedRunBtn').addEventListener('click',runSpeed);
+$('#speedCancelBtn').addEventListener('click',()=>speedAbort?.abort());
+$('#addAccountBtn').addEventListener('click',addAccount);
+$('#saveAccountsBtn').addEventListener('click',saveAccounts);
+$('#showAccountKeys').addEventListener('change',renderAccounts);
+$('#requestRefreshBtn').addEventListener('click',refreshRuntime);
+$('#historySearch').addEventListener('input',()=>{historyLimit=25;renderHistory()});
+$('#historyFilter').addEventListener('change',()=>{historyLimit=25;renderHistory()});
+$('#historyMoreBtn').addEventListener('click',()=>{historyLimit+=25;renderHistory()});
+$('#catalogSearch').addEventListener('input',renderCatalog);
+$('#saveSecurityBtn').addEventListener('click',saveSecurity);
+$('#showProxyKeyBtn').addEventListener('click',()=>{$('#proxyKeyInput').type=$('#proxyKeyInput').type==='password'?'text':'password'});
+$('#loginBtn').addEventListener('click',async()=>{
+  AUTH_KEY=$('#loginKey').value.trim();$('#loginError').textContent='';
+  try{await api('/api/models');localStorage.setItem('cps_key',AUTH_KEY);$('#loginOverlay').classList.add('hidden');await loadCore();toast('已进入控制台')}
+  catch(e){$('#loginError').textContent=errMsg(e)}
+});
+$('#loginKey').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
+window.addEventListener('hashchange',routeFromHash);
+
+(async function boot(){
+  try{
+    await loadMeta();
+    if(META.authRequired && !AUTH_KEY){routeFromHash();return}
+    await loadCore();
+    routeFromHash();
+  }catch(e){
+    if(META?.authRequired)$('#loginOverlay').classList.remove('hidden');
+    else toast(`初始化失败：${errMsg(e)}`,'bad',6000);
+  }
+})();
+setInterval(refreshRuntime,2500);
+setInterval(refreshHistory,10000);
+</script>
+</body>
+</html>

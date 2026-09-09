@@ -1,8 +1,8 @@
 # Cline Pass 上游控制台（cline-pass-switcher）
 
-本仓库基于 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher) 维护独立的 **V2**：入口为 `server-v2.js`，页面为 `public/index-v2.html`，原版 `server.js` 与 `public/index.html` 保留。
+本仓库基于 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher) 维护当前 **V3**：后端入口为 `server-v3.js`，管理面板为 `public/index-v3.html`。
 
-## V2 功能
+## V3 功能
 
 - **自定义上游**：测试台可填写上游 slug，严格指定该渠道发送测试；错误中的上游名称高亮，点击即可加入对应模型的监查列表。
 - **持久管理**：支持逐项删除上游，同步清理优先、排除及指标缓存；重启和再次探测不会自动加回，手动收录可恢复。
@@ -15,9 +15,8 @@
 
 批量测速每个上游最多生成 1024 token，单项超时 120 秒，会消耗订阅额度。价格单位为美元/百万 token，可用性取对应网关公开接口；缺失数据静默隐藏。
 
-详细操作、指标口径与持久化规则见 [V2 使用说明](docs/v2.md)。
 
-![V2 批量上游测速结果](docs/image.png)
+![V3 批量上游测速结果](docs/image.png)
 
 图中排名靠前的端点均带有 `fp8` / `fp4` 标注，我认为它们对应量化版本。不过，这些端点标签读取自 OpenRouter 提供的数据，不一定准确；端点名称没有 `fp8` / `fp4` 标注，也不意味着没有量化。
 
@@ -47,18 +46,17 @@
 ```bash
 git clone https://github.com/liqiming-whu/cline-pass-switcher.git
 cd cline-pass-switcher
-node server-v2.js     # 仅需 Node ≥ 18，无需 npm install
+node server-v3.js     # 仅需 Node ≥ 18，无需 npm install
 ```
 
 打开 <http://127.0.0.1:3123/>，在「账号管理」里添加你的 Cline Pass 账号（`sk_` 开头的 key）并保存即可。
 没有 key 也能启动：页面会提示配置入口。
 
-原版仍可通过 `node server.js` 启动。两版默认使用同一端口及 `config.json`、`metadata.json`；切换时先停止当前进程。需要隔离配置时，分别设置 `DATA_DIR` 和 `PORT`。
 
-本地验证 V2（隔离配置及模拟上游响应，不发送真实推理请求）：
+本地验证 V3（隔离配置及模拟上游响应，不发送真实推理请求）：
 
 ```bash
-node --check server-v2.js
+node --check server-v3.js
 node --test tests/server-v2.test.cjs
 ```
 
@@ -77,7 +75,7 @@ Model:    cline-pass/glm-5.2 等
 
 ## Docker 部署
 
-以下现有 Docker 配置启动原版 `server.js`；使用 V2 请按上面的 Node.js 方式启动。
+以下 Docker 配置已统一使用 `server-v3.js` 启动，与本地 V3 使用相同的配置文件格式。
 
 ### 方式 A：All-in-one（自带 Caddy 自动 HTTPS，推荐新手）
 
