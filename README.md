@@ -53,7 +53,7 @@ node server-v3.js     # 仅需 Node ≥ 18，无需 npm install
 没有 key 也能启动：页面会提示配置入口。
 
 
-本地验证（隔离配置及模拟上游响应，不发送真实推理请求）：
+本地语法检查：
 
 ```bash
 node --check server-v3.js
