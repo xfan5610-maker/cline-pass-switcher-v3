@@ -308,6 +308,14 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
           <div><h1 class="page-title">总览</h1><div class="page-desc">只保留日常最需要看的网关状态、最近请求和异常。</div></div>
         </div>
         <div class="grid stats" id="dashStats"></div>
+        <div class="card" style="margin-top:14px">
+          <h2 class="card-title">API Base URL</h2>
+          <div class="card-sub">OpenAI 兼容客户端请使用此地址；点击复制即可。</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+            <code class="field" id="dashProxyBase" style="display:flex;align-items:center;min-width:0;overflow:auto;white-space:nowrap">—</code>
+            <button class="btn" id="dashCopyProxyBtn">复制</button>
+          </div>
+        </div>
         <div class="split">
           <div class="card">
             <h2 class="card-title">当前运行状态</h2>
@@ -616,6 +624,7 @@ function renderCurrent(){
 }
 function renderAll(){
   $('#proxyChip').textContent = `代理地址：${DATA?.proxyBase || META?.proxyBase || '—'}`;
+  $('#dashProxyBase').textContent = DATA?.proxyBase || META?.proxyBase || '—';
   renderHealth();
   renderCurrent();
 }
@@ -1078,6 +1087,7 @@ $('#drawerBackdrop').addEventListener('click',()=>document.body.classList.remove
 $('#menuBtn').addEventListener('click',()=>document.body.classList.toggle('drawer-open'));
 $('#refreshBtn').addEventListener('click',async()=>{try{await loadCore();toast('已刷新')}catch(e){toast(errMsg(e),'bad')}});
 $('#proxyChip').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(DATA?.proxyBase||META?.proxyBase||'');toast('代理地址已复制')}catch{toast('复制失败','bad')}});
+$("#dashCopyProxyBtn").addEventListener("click",async()=>{try{await navigator.clipboard.writeText(DATA?.proxyBase||META?.proxyBase||"");toast("API Base URL 已复制")}catch{toast("复制失败","bad")}});
 $('#modelSearch').addEventListener('input',renderModels);
 $('#probeVisibleBtn').addEventListener('click',probeVisible);
 $('#fetchOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
