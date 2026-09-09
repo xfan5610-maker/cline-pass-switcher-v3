@@ -15,7 +15,6 @@
 
 批量测速每个上游最多生成 1024 token，单项超时 120 秒，会消耗订阅额度。价格单位为美元/百万 token，可用性取对应网关公开接口；缺失数据静默隐藏。
 
-
 ![批量上游测速结果](docs/image.png)
 
 图中排名靠前的端点均带有 `fp8` / `fp4` 标注，我认为它们对应量化版本。不过，这些端点标签读取自 OpenRouter 提供的数据，不一定准确；端点名称没有 `fp8` / `fp4` 标注，也不意味着没有量化。
@@ -41,7 +40,83 @@
 
 ---
 
+## Termux 一键部署（推荐）
+
+Android / Termux 用户推荐直接使用一键部署脚本。
+
+在 Termux 中复制并执行下面这一条命令：
+
+```bash
+pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/xfan5610-maker/cline-pass-switcher-v3/main/install-termux.sh | bash
+```
+
+脚本会自动完成：
+
+- 检查 Git，没有则自动安装；
+- 检查 Node.js，已有 Node.js ≥ 18 时不会修改现有版本；
+- 检查 PM2，没有则自动安装；
+- 下载项目到 `~/cline-pass-switcher-v3`；
+- 检查 `server-v3.js` 语法；
+- 启动 `cline-pass-v3` 后台服务；
+- 保存 PM2 进程列表，方便后续恢复运行。
+
+部署完成后打开：
+
+```text
+http://127.0.0.1:3123/
+```
+
+然后在「账号管理」里添加你的 Cline Pass 账号（`sk_` 开头的 key）并保存即可。
+
+没有 key 也可以先启动，进入管理面板后再配置。
+
+### 更新 / 重新部署
+
+以后需要更新项目时，可以直接再次执行同一条命令：
+
+```bash
+pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/xfan5610-maker/cline-pass-switcher-v3/main/install-termux.sh | bash
+```
+
+如果项目已经存在，脚本会拉取最新代码并重新启动 PM2 服务，不需要重新手动部署。
+
+### 常用 Termux 管理命令
+
+查看运行状态：
+
+```bash
+pm2 ls
+```
+
+重启服务：
+
+```bash
+pm2 restart cline-pass-v3
+```
+
+查看日志：
+
+```bash
+pm2 logs cline-pass-v3
+```
+
+停止服务：
+
+```bash
+pm2 stop cline-pass-v3
+```
+
+如果 Termux 被 Android 系统关闭，重新打开 Termux 后可尝试恢复已保存的服务：
+
+```bash
+pm2 resurrect
+```
+
+---
+
 ## 30 秒上手（本地）
+
+如果不使用一键部署，也可以手动运行：
 
 ```bash
 git clone https://github.com/xfan5610-maker/cline-pass-switcher-v3.git
@@ -50,8 +125,8 @@ node server-v3.js     # 仅需 Node ≥ 18，无需 npm install
 ```
 
 打开 <http://127.0.0.1:3123/>，在「账号管理」里添加你的 Cline Pass 账号（`sk_` 开头的 key）并保存即可。
-没有 key 也能启动：页面会提示配置入口。
 
+没有 key 也能启动：页面会提示配置入口。
 
 本地语法检查：
 
@@ -60,11 +135,12 @@ node --check server-v3.js
 ```
 
 > Cline Pass key 从哪里来？购买 Cline Pass 订阅后，在 Cline 的账户设置里创建 API Key。
+>
 > 订阅模型 ID 均为 `cline-pass/*` 前缀（如 `cline-pass/glm-5.2`）。
 
 客户端接入（任何 OpenAI 兼容工具）：
 
-```
+```text
 Base URL: http://127.0.0.1:3123/v1
 API Key:  （在控制台「访问与安全」里设置代理密钥；本地留空 = 不鉴权）
 Model:    cline-pass/glm-5.2 等
@@ -91,7 +167,7 @@ docker compose -f deploy/docker-compose.all-in-one.yml up -d --build
 
 访问 `https://你的域名/`（或 `https://服务器IP/`），控制台里设置代理密钥即可对外提供服务。
 
-### 方式 B：已有一个性化反代（nginx 门户等）
+### 方式 B：已有反向代理（nginx / Caddy 等）
 
 根目录的 `docker-compose.yml` 只启动应用并绑定 `127.0.0.1:3123`，由你现有的 nginx/Caddy 做 TLS：
 
@@ -156,6 +232,7 @@ Cline Pass 订阅模型在 Cline 网关之后分成两条管道，钉住上游�
 ```
 
 实测响应：`finalProvider: "alibaba"`，规划器理由变为 `Provider set restricted to: alibaba`。
+
 参考：[Vercel AI Gateway — Provider Filtering, Ordering & Sorting](https://vercel.com/docs/ai-gateway/models-and-providers/provider-filtering-and-ordering)
 
 ### 上游枚举的三种手段
@@ -199,19 +276,24 @@ Cline Pass 订阅模型在 Cline 网关之后分成两条管道，钉住上游�
 ## 常见问题
 
 **Q：为什么选了某个渠道会报 `invalid_request_error`？**
+
 部分渠道被单独钉住时会因模型 ID 映射失败，还有渠道处于共享池限流（429）状态。点该模型行的「校验」，
 把所有渠道实测一遍，下拉框会标注 ✔可用 / ⏳限流 / ✘不可钉。钉住失败的渠道会被自动学习标记。
 
 **Q：限流的渠道还能用吗？**
+
 能。限流是共享池的临时状态，过段时间重新「校验」即可；或改用「优先+回退」模式，限流时自动跳到其他渠道。
 
 **Q：直接用官方 API 写 `provider.only` 为什么不生效？**
+
 对规划器管道（走 Vercel AI Gateway 的模型）会被 Cline 网关丢弃，请改用 `providerOptions.gateway`，见上文。
 
 **Q：两条管道的渠道清单为什么不一样？**
+
 钉住发生在不同后端（OpenRouter vs Vercel AI Gateway），各自支持的渠道池不同，要以对应清单为准。
 
 **Q：订阅额度怎么计？**
+
 经代理的请求与直连官方 API 计费一致；「探测/测试/校验」会产生极小额的真实请求（每次约 0.0002 美元级）。
 
 ---
