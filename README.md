@@ -31,7 +31,7 @@
 
 ## 控制台与手机端布局
 
-![控制台截图](docs/screenshot-top.png)
+![总览](docs/总览.jpg)
 
 控制台主要页面为：
 
