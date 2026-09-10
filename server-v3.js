@@ -535,7 +535,7 @@ let V3_STALLED_TOTAL = 0;
 function v3RuntimeSnapshot() {
   const now = Date.now();
   return {
-    version: 'v3-stability-1',
+    version: 'v3-mobile-1.4.0',
     startedAt: V3_STARTED_AT,
     uptimeMs: now - V3_STARTED_AT,
     streamIdleTimeoutMs: V3_STREAM_IDLE_MS,
@@ -1094,6 +1094,19 @@ async function speedTest(model, upstream, signal) {
     ...measured, detail, testedAt: Date.now() };
 }
 
+function rememberSpeedTest(model, upstream, result) {
+  const meta = (META.models[model] ||= {});
+  const tests = (meta.speedTests ||= {});
+  tests[upstream] = {
+    ok: !!result.ok, model, upstream, actual: result.actual || null,
+    matched: result.matched ?? null, generationSpeed: result.generationSpeed ?? null,
+    perceivedSpeed: result.perceivedSpeed ?? null, firstPacketMs: result.firstPacketMs ?? null,
+    completionTokens: result.completionTokens ?? null, totalMs: result.totalMs ?? null,
+    detail: result.detail || null, error: result.error || null, testedAt: result.testedAt || Date.now(),
+  };
+  saveMeta();
+}
+
 function sendJSON(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
   res.end(JSON.stringify(obj));
@@ -1164,6 +1177,7 @@ const server = http.createServer(async (req, res) => {
       res.on?.('close', onClose);
       try {
         const result = await speedTest(model, upstream, ctrl.signal);
+        rememberSpeedTest(model, upstream, result);
         return sendJSON(res, 200, result);
       } catch (e) {
         return sendJSON(res, 502, { ok: false, error: ctrl.signal.aborted ? '测速超时或连接已断开' : e.message });
