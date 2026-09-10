@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title>Cline Pass V3.1 控制台</title>
+<title>Cline Pass V3.2 控制台</title>
 <style>
 :root{
   --bg:#0b0d12;--panel:#12151c;--panel2:#171b24;--panel3:#1c212c;
@@ -18,6 +18,7 @@ body{margin:0;min-height:100vh;background:var(--bg)}
 button,input,select{font:inherit}
 button{cursor:pointer}
 button:disabled{opacity:.48;cursor:not-allowed}
+button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 a{color:inherit}
 code,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
 .hidden{display:none!important}
@@ -50,7 +51,7 @@ code,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
   position:sticky;top:0;z-index:40;height:64px;background:rgba(11,13,18,.88);backdrop-filter:blur(16px);
   border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 24px;
 }
-.menu-btn{display:none}
+.mobile-back-btn{display:none}
 .top-title{font-weight:720;font-size:16px;white-space:nowrap}
 .top-spacer{flex:1}
 .proxy-chip{
@@ -68,6 +69,27 @@ code,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
 .btn.ghost{background:transparent}
 .btn.small{min-height:34px;padding:6px 10px;font-size:12px}
 .content{max-width:1280px;margin:0 auto;padding:24px}
+.status-strip{
+  display:flex;align-items:center;gap:10px;min-height:48px;margin-bottom:14px;padding:10px 13px;
+  background:linear-gradient(90deg,#131a26,#12151c);border:1px solid #29364d;border-radius:12px
+}
+.status-strip-main{min-width:0;flex:1}
+.status-strip-title{font-size:13px;font-weight:700}
+.status-strip-sub{font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.quick-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.quick-action{
+  display:flex;align-items:center;justify-content:center;gap:7px;min-height:46px;padding:9px 10px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--text);font-size:12px
+}
+.quick-action:hover{border-color:#3c4d70;background:#1a2030}
+.tabs{display:flex;gap:6px;padding:5px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:14px}
+.tab-btn{flex:1;min-height:42px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:12px}
+.tab-btn.active{background:#26365b;color:#edf2ff}
+.subview{display:none}.subview.active{display:block}
+.updated-at{font-size:11px;color:var(--muted);align-self:center}
+.btn.loading,.icon-btn.loading{pointer-events:none;opacity:.7}
+.icon-btn.loading{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .page{display:none}
 .page.active{display:block}
 .page-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
@@ -141,10 +163,26 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 .manage-btn:hover{border-color:var(--accent)}
 .inline-result{margin-top:10px;border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:10px;font-size:11px;line-height:1.6}
 .provider-layout{display:grid;grid-template-columns:minmax(280px,.7fr) minmax(0,1.3fr);gap:14px}
+.section-details{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.section-details + .section-details{margin-top:14px}
+.section-details > summary{list-style:none;display:flex;align-items:center;gap:12px;padding:16px;cursor:pointer}
+.section-details > summary::-webkit-details-marker{display:none}
+.section-details > summary::after{content:'展开';margin-left:auto;color:var(--accent);font-size:12px}
+.section-details[open] > summary::after{content:'收起'}
+.section-details-body{padding:0 16px 16px;border-top:1px solid var(--line)}
+.filter-chips{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}
+.filter-chip{border:1px solid var(--line);background:var(--panel2);color:var(--muted);border-radius:999px;min-height:34px;padding:6px 11px;font-size:11px}
+.filter-chip.active{background:#26365b;border-color:#3d5185;color:#eef2ff}
 .provider-row{
-  border:1px solid var(--line);border-left:3px solid var(--line);background:var(--panel2);border-radius:11px;padding:12px;
-  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center
+  border:1px solid var(--line);border-left:3px solid var(--line);background:var(--panel2);border-radius:11px;overflow:hidden
 }
+.provider-row > summary{list-style:none;display:flex;align-items:center;gap:10px;padding:12px;cursor:pointer}
+.provider-row > summary::-webkit-details-marker{display:none}
+.provider-row > summary::after{content:'›';margin-left:auto;color:var(--muted);font-size:20px;transition:transform .15s}
+.provider-row[open] > summary::after{transform:rotate(90deg)}
+.provider-row-detail{padding:0 12px 12px;border-top:1px solid #262d38}
+.provider-row-metrics{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;color:var(--muted);font-size:11px;line-height:1.5}
+.provider-row-metrics strong{color:var(--text);font-weight:650}
 .provider-row.status-ok{border-left-color:var(--ok)}
 .provider-row.status-limited{border-left-color:var(--warn)}
 .provider-row.status-bad,.provider-row.status-auth{border-left-color:var(--bad)}
@@ -157,7 +195,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 .status-pill.bad,.status-pill.auth{color:#ff9d97;background:#381d21;border-color:#693037}
 .status-pill.unknown{color:#a0a9b8;background:#1b2028;border-color:#343b48}
 .provider-controls{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
-.provider-test-result{grid-column:1/-1;border-top:1px solid #262d38;padding-top:9px;font-size:10.5px;line-height:1.55}
+.provider-test-result{border-top:1px solid #262d38;margin-top:10px;padding-top:9px;font-size:10.5px;line-height:1.55}
 .validation-legend{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
 .validation-legend .status-pill{font-weight:650}
 .route-test-result{margin:0 0 14px}
@@ -189,6 +227,18 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 .metric{border-top:1px solid #252c37;padding-top:7px}
 .metric-k{font-size:9px;color:var(--muted)}
 .metric-v{font-size:11.5px;margin-top:3px}
+.dashboard-route-grid{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:8px;margin-top:12px}
+.provider-command-panel{display:grid;gap:10px;max-width:720px;margin:0 auto 14px}
+.provider-channel-badge{justify-self:center;margin:0}
+.provider-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.provider-action-grid .btn{width:100%}
+.provider-action-grid .provider-action-final{grid-column:1/-1;width:calc(50% - 4px);justify-self:center}
+.dashboard-provider-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.dashboard-provider{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 12px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px
+}
+.dashboard-provider-meta{font-size:11px;color:var(--muted);margin-top:4px}
 .account-card{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px}
 .account-grid{display:grid;grid-template-columns:1fr 1.5fr auto;gap:8px;align-items:center}
 .checkline{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted)}
@@ -218,6 +268,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 .login-box{width:min(390px,100%);background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:20px;box-shadow:var(--shadow)}
 .login-title{font-size:18px;font-weight:750}
 .login-desc{font-size:11px;color:var(--muted);line-height:1.55;margin:7px 0 14px}
+.mobile-nav{display:none}
 @media(max-width:980px){
   .model-grid{grid-template-columns:1fr}
   .grid.stats{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -227,16 +278,15 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 }
 @media(max-width:760px){
   :root{--side:286px}
-  .sidebar{transform:translateX(-102%);transition:transform .2s ease;box-shadow:var(--shadow)}
-  body.drawer-open .sidebar{transform:translateX(0)}
-  .drawer-backdrop{display:block;position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .2s}
-  body.drawer-open .drawer-backdrop{opacity:1;pointer-events:auto}
+  .sidebar{display:none}
   .shell{margin-left:0}
   .topbar{height:58px;padding:0 10px env(safe-area-inset-right) 0;gap:8px}
-  .menu-btn{display:grid}
+  .mobile-back-btn{display:grid}
   .top-title{font-size:14px}
   .proxy-chip{display:none}
-  .content{padding:14px 10px calc(30px + env(safe-area-inset-bottom))}
+  .content{padding:12px 10px calc(88px + env(safe-area-inset-bottom))}
+  .status-strip{margin-bottom:12px}
+  .status-strip-title{font-size:14px}.status-strip-sub{font-size:12px}
   .page-head{align-items:flex-start}
   .page-title{font-size:20px}
   .page-desc{font-size:11px}
@@ -251,7 +301,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
   .form-row{grid-template-columns:1fr;gap:6px}
   .form-label{padding-top:0}
   .field,select,input[type=text],input[type=password],input[type=search]{min-height:46px;font-size:14px;max-width:none}
-  .provider-row{grid-template-columns:1fr}
+  .btn,.icon-btn{min-height:46px;font-size:14px}.icon-btn{width:46px}
   .provider-controls{display:grid;grid-template-columns:1fr;width:100%}
   .provider-controls .btn{width:100%}
   .segment{width:100%}.segment button{flex:1;min-height:40px}
@@ -259,10 +309,26 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
   .order-actions{grid-column:1/-1;padding-left:43px}
   .speed-picks{grid-template-columns:1fr}
   .speed-grid{grid-template-columns:1fr}
+  .dashboard-route-grid{grid-template-columns:1fr 1fr}
+  .dashboard-route-grid .field{grid-column:1/-1}
+  .provider-action-grid .btn{min-height:46px}
   .account-grid{grid-template-columns:1fr}
   .request-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .actions{width:100%}.actions .btn{flex:1}
-  .toast-wrap{right:10px;left:10px;bottom:10px;max-width:none}
+  .quick-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .quick-action{min-height:50px;font-size:14px}
+  .mobile-nav{
+    position:fixed;display:grid;grid-template-columns:repeat(4,1fr);left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));
+    z-index:75;min-height:62px;padding:5px;background:rgba(18,21,28,.96);border:1px solid var(--line2);
+    border-radius:17px;box-shadow:0 14px 40px rgba(0,0,0,.5);backdrop-filter:blur(18px)
+  }
+  .mobile-nav-btn{
+    border:0;background:transparent;color:#7f8999;border-radius:12px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:3px;min-width:0;padding:4px 2px;font-size:11px
+  }
+  .mobile-nav-icon{font-size:18px;line-height:1}
+  .mobile-nav-btn.active{background:#202b45;color:#e4ebff}
+  .toast-wrap{right:10px;left:10px;bottom:calc(82px + env(safe-area-inset-bottom));max-width:none}
 }
 </style>
 </head>
@@ -270,19 +336,16 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <div class="brand-title">Cline Pass V3.1</div>
+      <div class="brand-title">Cline Pass V3.2</div>
       <div class="brand-sub">上游路由、账号池与运行状态控制台</div>
       <div class="side-health"><span class="dot" id="sideDot"></span><span id="sideHealth">正在连接网关</span></div>
     </div>
     <nav class="nav">
       <div class="nav-label">概览</div>
       <button class="nav-btn" data-route="dashboard"><span class="nav-icon">⌂</span><span>总览</span></button>
-      <button class="nav-btn" data-route="requests"><span class="nav-icon">⇄</span><span>实时请求</span></button>
-      <button class="nav-btn" data-route="history"><span class="nav-icon">◷</span><span>请求历史</span></button>
+      <button class="nav-btn" data-route="requests"><span class="nav-icon">⇄</span><span>请求</span></button>
       <div class="nav-label">路由</div>
-      <button class="nav-btn" data-route="models"><span class="nav-icon">◇</span><span>模型管理</span></button>
-      <button class="nav-btn" data-route="providers"><span class="nav-icon">⌁</span><span>上游管理</span></button>
-      <button class="nav-btn" data-route="speed"><span class="nav-icon">↯</span><span>上游测速</span></button>
+      <button class="nav-btn" data-route="providers"><span class="nav-icon">⌁</span><span>路由与测速</span></button>
       <div class="nav-label">系统</div>
       <button class="nav-btn" data-route="accounts"><span class="nav-icon">◎</span><span>账号管理</span></button>
       <button class="nav-btn" data-route="settings"><span class="nav-icon">⚙</span><span>设置与安全</span></button>
@@ -291,11 +354,9 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
       <div id="sideVersion">运行层：—</div>
     </div>
   </aside>
-  <div class="drawer-backdrop" id="drawerBackdrop"></div>
-
   <div class="shell">
     <header class="topbar">
-      <button class="icon-btn menu-btn" id="menuBtn" aria-label="打开导航">☰</button>
+      <button class="icon-btn mobile-back-btn hidden" id="mobileBackBtn" aria-label="返回设置">←</button>
       <div class="top-title" id="topTitle">总览</div>
       <div class="top-spacer"></div>
       <button class="proxy-chip" id="proxyChip" title="点击复制代理地址">代理地址：—</button>
@@ -304,6 +365,13 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 
     <main class="content">
       <section class="page" data-page="dashboard">
+        <div class="status-strip" id="globalStatus" aria-live="polite">
+          <span class="dot" id="globalStatusDot"></span>
+          <div class="status-strip-main">
+            <div class="status-strip-title" id="globalStatusTitle">正在连接网关</div>
+            <div class="status-strip-sub" id="globalStatusSub">等待运行状态</div>
+          </div>
+        </div>
         <div class="page-head">
           <div><h1 class="page-title">总览</h1><div class="page-desc">只保留日常最需要看的网关状态、最近请求和异常。</div></div>
         </div>
@@ -315,6 +383,18 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             <code class="field" id="dashProxyBase" style="display:flex;align-items:center;min-width:0;overflow:auto;white-space:nowrap">—</code>
             <button class="btn" id="dashCopyProxyBtn">复制</button>
           </div>
+        </div>
+        <div class="card">
+          <h2 class="card-title">快速选择首选上游</h2>
+          <div class="card-sub">选择模型后先探测路由，再校验哪些上游厂商目前可用。</div>
+          <div class="dashboard-route-grid">
+            <select class="field" id="dashModelSelect"></select>
+            <button class="btn" id="dashProbeBtn">探测路由</button>
+            <button class="btn primary" id="dashValidateBtn">校验全部上游</button>
+          </div>
+          <div class="inline-result hidden" id="dashRouteInfo"></div>
+          <div class="dashboard-provider-list" id="dashProviderPicks"></div>
+          <button class="manage-btn" data-route="providers"><span>备用顺序、排除和性能测速</span><span>›</span></button>
         </div>
         <div class="split">
           <div class="card">
@@ -335,27 +415,20 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
         </div>
       </section>
 
-      <section class="page" data-page="models">
-        <div class="page-head">
-          <div><h1 class="page-title">模型管理</h1><div class="page-desc">每个模型独立探测、测试和校验；复杂路由配置进入专用上游页面。</div></div>
-          <div class="actions"><button class="btn" id="fetchOfficialBtn">拉取最新模型</button></div>
-        </div>
-        <div class="toolbar">
-          <input class="field search" id="modelSearch" type="search" placeholder="搜索模型、背后模型或上游…">
-          <button class="btn" id="probeVisibleBtn">探测当前筛选模型</button>
-        </div>
-        <div class="model-grid" id="modelGrid"></div>
-      </section>
-
       <section class="page" data-page="providers">
         <div class="page-head">
-          <div><h1 class="page-title">上游管理</h1><div class="page-desc">路由模式、排序、优先级和排除全部集中在这里，不再藏在小三角里。</div></div>
+          <div><h1 class="page-title">路由与测速</h1><div class="page-desc">选择首选上游、设置备用顺序，并在同一页面完成可用性检查和性能测速。</div></div>
         </div>
-        <div class="toolbar">
+        <div class="provider-command-panel">
           <select class="field" id="providerModel"></select>
-          <button class="btn" id="providerProbeBtn">探测此模型</button>
-          <button class="btn primary" id="providerRouteTestBtn">测试当前路由</button>
-          <button class="btn" id="providerValidateBtn">校验全部上游</button>
+          <span class="badge provider-channel-badge" id="providerChannelBadge">尚未探测路由</span>
+          <div class="provider-action-grid">
+            <button class="btn" id="providerFetchOfficialBtn">拉取最新模型</button>
+            <button class="btn" id="providerProbeAllBtn">探测全部模型</button>
+            <button class="btn" id="providerProbeBtn">探测当前路由</button>
+            <button class="btn primary" id="providerRouteTestBtn">测试当前路由</button>
+            <button class="btn provider-action-final" id="providerValidateBtn">校验全部上游</button>
+          </div>
         </div>
         <div id="routeTestResult" class="inline-result route-test-result hidden"></div>
         <div class="provider-layout">
@@ -388,42 +461,51 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             </div>
           </div>
           <div>
-            <div class="card">
-              <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
-                <div><h2 class="card-title">全部上游</h2><div class="card-sub" id="providerSummary">—</div><div class="validation-legend" id="providerLegend"></div></div>
+            <details class="section-details" id="allProvidersDetails">
+              <summary>
+                <div><h2 class="card-title">全部上游厂商</h2><div class="card-sub" id="providerSummary">—</div></div>
+              </summary>
+              <div class="section-details-body">
+                <div class="validation-legend" id="providerLegend"></div>
+                <div class="filter-chips" id="providerFilters">
+                  <button class="filter-chip active" data-provider-filter="all">全部</button>
+                  <button class="filter-chip" data-provider-filter="ok">可用</button>
+                  <button class="filter-chip" data-provider-filter="priority">首选</button>
+                  <button class="filter-chip" data-provider-filter="exclude">排除</button>
+                  <button class="filter-chip" data-provider-filter="unknown">未检查</button>
+                </div>
+                <div class="toolbar">
+                  <input class="field" id="providerSearch" type="search" placeholder="搜索上游厂商…">
+                </div>
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                  <input class="field" id="customProvider" type="text" placeholder="手动收录上游 slug">
+                  <button class="btn" id="addProviderBtn">加入</button>
+                </div>
+                <div class="list" id="providerList"></div>
               </div>
-              <div class="toolbar" style="margin-top:12px">
-                <input class="field" id="providerSearch" type="search" placeholder="筛选上游…">
-              </div>
-              <div style="display:flex;gap:8px;margin-bottom:12px">
-                <input class="field" id="customProvider" type="text" placeholder="手动收录上游 slug">
-                <button class="btn" id="addProviderBtn">加入</button>
-              </div>
-              <div class="list" id="providerList"></div>
-            </div>
-          </div>
-        </div>
-      </section>
+            </details>
 
-      <section class="page" data-page="speed">
-        <div class="page-head">
-          <div><h1 class="page-title">上游测速</h1><div class="page-desc">按模型选择供应商逐个测速，手机端直接显示排行榜卡片。</div></div>
-        </div>
-        <div class="card">
-          <div class="toolbar">
-            <select class="field" id="speedModel"></select>
-            <button class="btn" id="speedAllBtn">全选</button>
-            <button class="btn" id="speedNoneBtn">清空</button>
-            <button class="btn primary" id="speedRunBtn">开始测速</button>
-            <button class="btn danger hidden" id="speedCancelBtn">停止测速</button>
+            <details class="section-details" id="speedDetails">
+              <summary>
+                <div><h2 class="card-title">性能测速</h2><div class="card-sub" id="speedSummary">选择上游厂商进行本机实测</div></div>
+              </summary>
+              <div class="section-details-body">
+                <div class="toolbar" style="margin-top:12px">
+                  <button class="btn" id="speedAllBtn">全选</button>
+                  <button class="btn" id="speedNoneBtn">清空</button>
+                  <button class="btn primary" id="speedRunBtn">开始测速</button>
+                  <button class="btn danger hidden" id="speedCancelBtn">停止测速</button>
+                </div>
+                <div class="speed-picks" id="speedPicks"></div>
+                <div id="speedProgressWrap" class="hidden">
+                  <div class="card-sub" id="speedProgressText" style="margin-top:12px">准备中…</div>
+                  <div class="progress"><i id="speedProgressBar"></i></div>
+                </div>
+                <div class="speed-grid" id="speedResults"></div>
+              </div>
+            </details>
           </div>
-          <div class="speed-picks" id="speedPicks"></div>
-          <div id="speedProgressWrap" class="hidden">
-            <div class="card-sub" id="speedProgressText" style="margin-top:12px">准备中…</div>
-            <div class="progress"><i id="speedProgressBar"></i></div>
-          </div>
         </div>
-        <div class="speed-grid" id="speedResults"></div>
       </section>
 
       <section class="page" data-page="accounts">
@@ -446,30 +528,45 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
 
       <section class="page" data-page="requests">
         <div class="page-head">
-          <div><h1 class="page-title">实时请求</h1><div class="page-desc">查看正在生成的模型、目标上游、最后数据时间；异常连接可单独终止。</div></div>
-          <div class="actions"><button class="btn" id="requestRefreshBtn">立即刷新</button></div>
+          <div><h1 class="page-title">请求</h1><div class="page-desc">实时状态和完整历史集中在同一页面，不需要来回跳转。</div></div>
+          <div class="actions"><span class="updated-at" id="requestUpdatedAt">尚未刷新</span><button class="btn" id="requestRefreshBtn">刷新请求</button></div>
         </div>
-        <div class="grid stats" id="requestStats"></div>
-        <div class="list" id="requestList" style="margin-top:14px"></div>
-      </section>
-
-      <section class="page" data-page="history">
-        <div class="page-head">
-          <div><h1 class="page-title">请求历史</h1><div class="page-desc">最近 100 条代理请求。点击一条记录可查看尝试序列和错误详情。</div></div>
+        <div class="tabs" role="tablist" aria-label="请求视图">
+          <button class="tab-btn active" data-request-view="live" role="tab">实时请求</button>
+          <button class="tab-btn" data-request-view="history" role="tab">请求历史</button>
         </div>
-        <div class="toolbar">
-          <input class="field search" id="historySearch" type="search" placeholder="搜索模型、账号或上游…">
-          <select class="field" id="historyFilter" style="min-width:150px">
-            <option value="all">全部</option><option value="ok">仅成功</option><option value="error">仅异常</option>
-          </select>
+        <div class="subview active" id="requestLiveView">
+          <div class="grid stats" id="requestStats"></div>
+          <div class="list" id="requestList" style="margin-top:14px"></div>
+          <div class="card" style="margin-top:14px">
+            <div><h2 class="card-title">最近请求</h2><div class="card-sub">最近 8 条请求。</div></div>
+            <div class="list" id="requestRecentHistory" style="margin-top:12px"></div>
+          </div>
         </div>
-        <div class="list" id="historyList"></div>
-        <button class="btn hidden" id="historyMoreBtn" style="margin-top:12px;width:100%">显示更多</button>
+        <div class="subview" id="requestHistoryView">
+          <div class="toolbar">
+            <input class="field search" id="historySearch" type="search" placeholder="搜索模型、账号或上游…">
+            <select class="field" id="historyFilter" style="min-width:150px">
+              <option value="all">全部</option><option value="ok">仅成功</option><option value="error">仅异常</option>
+            </select>
+          </div>
+          <div class="list" id="historyList"></div>
+          <button class="btn hidden" id="historyMoreBtn" style="margin-top:12px;width:100%">显示更多</button>
+        </div>
       </section>
 
       <section class="page" data-page="settings">
         <div class="page-head">
           <div><h1 class="page-title">设置与安全</h1><div class="page-desc">低频配置集中在这里，不占用日常页面空间。</div></div>
+        </div>
+        <div class="card">
+          <h2 class="card-title">管理入口</h2>
+          <div class="card-sub">账号和完整历史属于低频操作，集中放在这里。</div>
+          <div class="quick-actions">
+            <button class="quick-action" data-route="accounts"><span>◎</span><span>账号管理</span></button>
+            <button class="quick-action" data-route="requests" data-open-request-view="history"><span>◷</span><span>请求历史</span></button>
+            <button class="quick-action" data-route="dashboard"><span>⌂</span><span>返回总览</span></button>
+          </div>
         </div>
         <div class="card">
           <h2 class="card-title">访问与安全</h2>
@@ -493,10 +590,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
           <div class="form-row"><div class="form-label">累计卡流</div><div id="stalledInfo" class="muted" style="padding-top:10px">—</div></div>
         </div>
         <div class="card">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
-            <div><h2 class="card-title">完整模型目录</h2><div class="card-sub" id="catalogCount">—</div></div>
-            <button class="btn" id="refreshOfficialBtn">拉取最新订阅模型</button>
-          </div>
+          <div><h2 class="card-title">完整模型目录</h2><div class="card-sub" id="catalogCount">—</div></div>
           <input class="field" id="catalogSearch" type="search" placeholder="过滤模型目录…" style="margin-top:12px">
           <div class="catalog-list" id="catalogList" style="margin-top:10px"></div>
         </div>
@@ -504,6 +598,13 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
     </main>
   </div>
 </div>
+
+<nav class="mobile-nav" aria-label="手机端主导航">
+  <button class="mobile-nav-btn" data-route="dashboard" data-bottom-route="dashboard"><span class="mobile-nav-icon">⌂</span><span>首页</span></button>
+  <button class="mobile-nav-btn" data-route="providers" data-bottom-route="providers"><span class="mobile-nav-icon">⌁</span><span>路由</span></button>
+  <button class="mobile-nav-btn" data-route="requests" data-bottom-route="requests"><span class="mobile-nav-icon">⇄</span><span>请求</span></button>
+  <button class="mobile-nav-btn" data-route="settings" data-bottom-route="settings"><span class="mobile-nav-icon">⚙</span><span>设置</span></button>
+</nav>
 
 <div class="login hidden" id="loginOverlay">
   <div class="login-box">
@@ -531,8 +632,12 @@ const stateLabel = v => ({ok:'可用',limited:'限流',bad:'不可用',auth:'鉴
 
 let AUTH_KEY = localStorage.getItem('cps_key') || '';
 let META = null, DATA = null, ACC = null, SECURITY = null, HISTORY = [], RUNTIME = null;
-let currentRoute = 'dashboard', providerModelId = '', historyLimit = 25;
-let MODEL_RESULTS = new Map(), VALIDATION_RESULTS = new Map(), PROVIDER_TEST_RESULTS = new Map(), speedAbort = null, speedRunning = false;
+let currentRoute = 'dashboard', providerModelId = localStorage.getItem('cps_provider_model') || '', historyLimit = 25;
+let dashboardModelId = localStorage.getItem('cps_dashboard_model') || '', requestView = 'live', providerFilter = 'all';
+let MODEL_RESULTS = new Map(), VALIDATION_RESULTS = new Map(), PROVIDER_TEST_RESULTS = new Map(), SPEED_RESULTS = new Map(), SPEED_SELECTIONS = new Map();
+const SPEED_SELECTION_TOUCHED = new Set();
+let speedAbort = null, speedRunning = false, requestUpdatedAt = 0, lastRuntimeFetch = 0, lastHistoryFetch = 0, autoRefreshBusy = false;
+const ROUTE_SCROLL = new Map();
 
 function toast(message, kind='ok', timeout=3200){
   const el = document.createElement('div');
@@ -577,12 +682,14 @@ async function loadCore(){
   ];
   [DATA, ACC, SECURITY, HISTORY, RUNTIME] = await Promise.all(jobs);
   HISTORY = HISTORY?.history || [];
+  lastRuntimeFetch=Date.now();lastHistoryFetch=Date.now();
   providerModelId ||= DATA?.subscription?.[0]?.id || '';
   renderAll();
 }
 async function refreshRuntime(){
   try {
     RUNTIME = await api('/api/runtime');
+    lastRuntimeFetch=Date.now();
     renderHealth();
     if (currentRoute === 'dashboard') renderDashboard();
     if (currentRoute === 'requests') renderRequests();
@@ -590,42 +697,57 @@ async function refreshRuntime(){
   } catch {}
 }
 async function refreshHistory(){
-  try { HISTORY = (await api('/api/history')).history || []; } catch {}
+  try {
+    HISTORY = (await api('/api/history')).history || [];
+    lastHistoryFetch=Date.now();
+    if(currentRoute==='requests')renderRequests();
+    if(currentRoute==='dashboard')renderDashboard();
+    renderGlobalStatus();
+  } catch {}
 }
 
 function routeFromHash(){
-  const raw = location.hash.replace(/^#/,'') || 'dashboard';
-  const [name, qs=''] = raw.split('?');
-  const allowed = ['dashboard','models','providers','speed','accounts','requests','history','settings'];
+  const raw = location.hash.replace(/^#/,'') || localStorage.getItem('cps_last_route') || 'dashboard';
+  const [rawName, qs=''] = raw.split('?');
+  const legacySpeed=rawName==='speed', legacyHistory=rawName==='history', legacyModels=rawName==='models';
+  const name=(legacySpeed||legacyModels)?'providers':legacyHistory?'requests':rawName;
+  const allowed = ['dashboard','providers','accounts','requests','settings'];
   currentRoute = allowed.includes(name) ? name : 'dashboard';
+  localStorage.setItem('cps_last_route',currentRoute);
   const p = new URLSearchParams(qs);
   if (p.get('model')) providerModelId = p.get('model');
+  if(currentRoute==='requests')requestView=legacyHistory||p.get('view')==='history'?'history':'live';
   $$('.page').forEach(x=>x.classList.toggle('active', x.dataset.page === currentRoute));
   $$('.nav-btn').forEach(x=>x.classList.toggle('active', x.dataset.route === currentRoute));
-  const labels={dashboard:'总览',models:'模型管理',providers:'上游管理',speed:'上游测速',accounts:'账号管理',requests:'实时请求',history:'请求历史',settings:'设置与安全'};
+  const bottomRoute={providers:'providers',requests:'requests',settings:'settings'}[currentRoute]||currentRoute;
+  $$('.mobile-nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.bottomRoute===bottomRoute));
+  const labels={dashboard:'总览',providers:'路由与测速',accounts:'账号管理',requests:'请求',settings:'设置与安全'};
   $('#topTitle').textContent = labels[currentRoute];
-  document.body.classList.remove('drawer-open');
+  $('#mobileBackBtn').classList.toggle('hidden',currentRoute!=='accounts');
   renderCurrent();
+  if(currentRoute==='requests')setRequestView(requestView,false);
+  if(legacySpeed)requestAnimationFrame(()=>{$('#speedDetails').open=true;$('#speedDetails').scrollIntoView({block:'start'})});
+  else requestAnimationFrame(()=>scrollTo({top:ROUTE_SCROLL.get(currentRoute)||0,behavior:'auto'}));
 }
 function go(route, params={}){
+  ROUTE_SCROLL.set(currentRoute,scrollY);
+  if(route==='history'){route='requests';params={...params,view:'history'}}
+  if(route==='speed'||route==='models')route='providers';
   const qs = new URLSearchParams(params).toString();
   location.hash = route + (qs ? `?${qs}` : '');
 }
 function renderCurrent(){
   if (!DATA) return;
   if (currentRoute==='dashboard') renderDashboard();
-  if (currentRoute==='models') renderModels();
   if (currentRoute==='providers') renderProviders();
-  if (currentRoute==='speed') renderSpeed();
   if (currentRoute==='accounts') renderAccounts();
   if (currentRoute==='requests') renderRequests();
-  if (currentRoute==='history') renderHistory();
   if (currentRoute==='settings') renderSettings();
 }
 function renderAll(){
   $('#proxyChip').textContent = `代理地址：${DATA?.proxyBase || META?.proxyBase || '—'}`;
   $('#dashProxyBase').textContent = DATA?.proxyBase || META?.proxyBase || '—';
-  renderHealth();
+  renderHealth();renderGlobalStatus();
   renderCurrent();
 }
 function renderHealth(){
@@ -635,6 +757,19 @@ function renderHealth(){
   $('#sideDot').className = `dot ${near?'warn':''}`;
   $('#sideHealth').textContent = near ? '有请求接近卡流阈值' : '网关运行正常';
   $('#sideVersion').textContent = `运行层：${RUNTIME.version || 'V3'} · ${fmtDur(RUNTIME.uptimeMs)}`;
+  renderGlobalStatus();
+}
+function renderGlobalStatus(){
+  const dot=$('#globalStatusDot'),title=$('#globalStatusTitle'),sub=$('#globalStatusSub');
+  if(!dot||!title||!sub)return;
+  const streams=RUNTIME?.activeStreams||[],threshold=RUNTIME?.streamIdleTimeoutMs||90000;
+  const near=streams.some(s=>(s.idleMs||0)>threshold*.7),latest=HISTORY?.[0]||null;
+  const enabled=(ACC?.accounts||[]).filter(a=>a.enabled!==false);
+  dot.className=`dot ${near?'warn':latest?.error?'bad':''}`;
+  title.textContent=near?'有请求接近卡流阈值':latest?.error?'最近一次请求失败':RUNTIME?'网关运行正常':'正在连接网关';
+  const account=enabled.length?`${enabled.length} 个账号可用`:'尚未配置账号';
+  const route=latest?`${shortModel(latest.model)} → ${latest.provider||'自动选择'}`:'暂无请求记录';
+  sub.textContent=`${account} · ${route}`;
 }
 function modelById(id){ return DATA?.subscription?.find(x=>x.id===id); }
 function validationEntry(modelId,u){
@@ -652,8 +787,18 @@ function statusPill(st){
   return `<span class="status-pill ${cls}">${icon} ${esc(stateLabel(st))}</span>`;
 }
 function providerMatch(expected,actual){
-  const a=String(expected||'').trim().toLowerCase(), b=String(actual||'').trim().toLowerCase();
-  return !!a && !!b && (a===b || b.endsWith('/'+a) || a.endsWith('/'+b));
+  const a=canonicalProviderName(expected), b=canonicalProviderName(actual);
+  return !!a && !!b && (a===b || b.endsWith(a) || a.endsWith(b));
+}
+function canonicalProviderName(value){
+  const tail=String(value||'').trim().toLowerCase().split('/').filter(Boolean).pop()||'';
+  const compact=tail.replace(/[._\-\s]/g,'');
+  return ({zai:'zhipuai',zhipu:'zhipuai',zhipuai:'zhipuai'}[compact]||compact);
+}
+function providerMatchLabel(expected,actual){
+  return canonicalProviderName(expected)===canonicalProviderName(actual)
+    && String(expected||'').trim().toLowerCase()!==String(actual||'').trim().toLowerCase()
+    ? '名称别名' : '精确名称';
 }
 
 function renderDashboard(){
@@ -670,6 +815,28 @@ function renderDashboard(){
     ['可用账号',`${activeAccounts}/${accounts.length}`,ACC?.mode==='roundrobin'?'轮询模式':'单账号模式'],
     ['模型 / 上游',`${subs.length} / ${unique.size}`,'已收录订阅模型 / 唯一上游']
   ].map(([k,v,n])=>`<div class="stat"><div class="stat-k">${esc(k)}</div><div class="stat-v">${esc(v)}</div><div class="stat-note">${esc(n)}</div></div>`).join('');
+
+  const recentModel=HISTORY.find(h=>modelById(h.model))?.model;
+  if(!dashboardModelId||!modelById(dashboardModelId))dashboardModelId=recentModel||subs[0]?.id||'';
+  $('#dashModelSelect').innerHTML=subs.map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
+  $('#dashModelSelect').value=dashboardModelId;
+  const selected=modelById(dashboardModelId),meta=selected?.meta||{},cfg=selected?.config||{};
+  const pipeline=meta.pipeline==='planner'?'Vercel':meta.pipeline==='openrouter'?'OpenRouter':meta.pipeline||'尚未探测';
+  const pin=meta.pinnable===true?'支持精确锚定':meta.pinnable===false?'未确认可精确锚定':'等待探测';
+  $('#dashRouteInfo').classList.toggle('hidden',!meta.pipeline&&!meta.lastProvider&&!meta.validatedAt);
+  $('#dashRouteInfo').textContent=`路由管道：${pipeline} · 最近命中：${meta.lastProvider||'—'} · ${pin}${meta.validatedAt?` · 上次校验 ${fmtDateTime(meta.validatedAt)}`:''}`;
+  const all=meta.upstreams||[],preferred=cfg.upstreams?.[0]||null;
+  const ranked=all.map(u=>({u,state:upstreamState(meta,u,dashboardModelId)}))
+    .filter(x=>x.state!=='unknown')
+    .sort((a,b)=>({ok:0,limited:1,bad:2,auth:3}[a.state]??4)-({ok:0,limited:1,bad:2,auth:3}[b.state]??4));
+  $('#dashProviderPicks').innerHTML=ranked.length?ranked.map(({u,state})=>`
+    <div class="dashboard-provider">
+      <div><div class="list-title">${esc(u)} ${u===preferred?'<span class="badge">当前首选</span>':''}</div>
+      <div class="dashboard-provider-meta">${esc(stateLabel(state))}${meta.validatedAt?` · ${esc(fmtDateTime(meta.validatedAt))}`:''}</div></div>
+      ${u===preferred
+        ? `<button class="btn small" data-dashboard-provider-default="${esc(u)}">取消首选</button>`
+        : state==='ok' ? `<button class="btn small" data-dashboard-provider="${esc(u)}">设为首选</button>` : statusPill(state)}
+    </div>`).join(''):(all.length?'<div class="empty">上游尚未校验，点击“校验全部上游”查看可用状态</div>':'<div class="empty">还没有发现上游，点击“探测路由”开始</div>');
 
   $('#dashRequests').innerHTML = streams.length ? streams.slice(0,6).map(s=>`
     <div class="list-item">
@@ -694,6 +861,38 @@ function renderDashboard(){
       </div><span class="badge ${h.error?'bad':'ok'}">${h.error?'失败':'成功'}</span>
     </div>`).join('') || '<div class="empty">暂无请求历史</div>';
 }
+
+async function dashboardAction(action,btn){
+  const model=$('#dashModelSelect').value;if(!model)return toast('请先选择模型','warn');
+  const old=btn.textContent;btn.disabled=true;btn.classList.add('loading');btn.textContent=action==='probe'?'探测中…':'校验中…';
+  try{
+    if(action==='probe')await api('/api/probe',{model});
+    else{
+      const r=await api('/api/validate-upstreams',{model});
+      VALIDATION_RESULTS.set(model,r.results||{});
+    }
+    DATA=await api('/api/models');renderDashboard();
+    toast(action==='probe'?'路由探测完成':'上游校验完成');
+  }catch(e){toast(errMsg(e),'bad',5000)}finally{btn.disabled=false;btn.classList.remove('loading');btn.textContent=old}
+}
+async function setDashboardProvider(upstream){
+  const s=modelById(dashboardModelId);if(!s)return;
+  const cfg=structuredClone(s.config||{}),rest=(cfg.upstreams||[]).filter(x=>x!==upstream);
+  cfg.upstreams=[upstream,...rest];cfg.exclude=(cfg.exclude||[]).filter(x=>x!==upstream);
+  try{
+    await api('/api/config',{perModel:{[dashboardModelId]:cfg}});
+    DATA=await api('/api/models');renderDashboard();toast(`${upstream} 已设为首选上游`);
+  }catch(e){toast(errMsg(e),'bad')}
+}
+async function clearDashboardProvider(upstream){
+  const s=modelById(dashboardModelId);if(!s)return;
+  const cfg=structuredClone(s.config||{});
+  cfg.upstreams=(cfg.upstreams||[]).filter(x=>x!==upstream);
+  try{
+    await api('/api/config',{perModel:{[dashboardModelId]:cfg}});
+    DATA=await api('/api/models');renderDashboard();toast(`${upstream} 已取消首选`);
+  }catch(e){toast(errMsg(e),'bad')}
+}
 function routingSummary(s){
   const cfg=s.config||{}, ups=cfg.upstreams||[], ex=cfg.exclude||[];
   return `<div class="route-summary">
@@ -702,37 +901,9 @@ function routingSummary(s){
     <div class="route-line"><span class="route-k">排除</span><span class="route-v">${ex.length?ex.map(esc).join(' · '):'<span class="muted">无</span>'}</span></div>
   </div>`;
 }
-function renderModels(){
-  const q=$('#modelSearch').value.trim().toLowerCase();
-  const list=(DATA.subscription||[]).filter(s=>{
-    const blob=[s.id,s.meta?.canonicalSlug,s.meta?.lastProvider,...(s.meta?.upstreams||[])].join(' ').toLowerCase();
-    return !q || blob.includes(q);
-  });
-  $('#modelGrid').innerHTML=list.map(s=>{
-    const m=s.meta||{}, ups=m.upstreams||[], result=MODEL_RESULTS.get(s.id);
-    const pipeline=m.pinnable ? `<span class="badge ok">可精确钉住 · ${m.pipeline==='planner'?'Vercel':'OpenRouter'}</span>` : '<span class="badge warn">建议先探测</span>';
-    return `<article class="model-card" data-model="${esc(s.id)}">
-      <div class="model-head"><div style="min-width:0;flex:1"><div class="model-name">${esc(shortModel(s.id))}</div><div class="model-id">${esc(s.id)}</div></div>${pipeline}</div>
-      <div class="model-meta">
-        <div class="mini-stat"><div class="mini-k">背后模型</div><div class="mini-v" title="${esc(m.canonicalSlug||'')}">${esc(m.canonicalSlug||'—')}</div></div>
-        <div class="mini-stat"><div class="mini-k">上游数量</div><div class="mini-v">${ups.length || '—'}</div></div>
-        <div class="mini-stat"><div class="mini-k">最近命中</div><div class="mini-v" title="${esc(m.lastProvider||'')}">${esc(m.lastProvider||'未探测')}</div></div>
-      </div>
-      ${routingSummary(s)}
-      <div class="model-actions">
-        <button class="btn small" data-model-action="probe" data-model="${esc(s.id)}">探测</button>
-        <button class="btn small" data-model-action="test" data-model="${esc(s.id)}">测试</button>
-        <button class="btn small" data-model-action="validate" data-model="${esc(s.id)}">校验</button>
-      </div>
-      <button class="manage-btn" data-model-action="manage" data-model="${esc(s.id)}"><span>管理上游与路由设置</span><span>›</span></button>
-      ${result?`<div class="inline-result ${result.ok?'good':'bad'}">${esc(result.text)}</div>`:''}
-    </article>`;
-  }).join('') || '<div class="empty">没有匹配的模型</div>';
-}
 async function modelAction(action,id,btn){
   const old=btn?.textContent; if(btn){btn.disabled=true;btn.textContent='处理中…'}
   try{
-    if(action==='manage'){ providerModelId=id; go('providers',{model:id}); return; }
     if(action==='probe'){
       const r=await api('/api/probe',{model:id});
       MODEL_RESULTS.set(id,{ok:true,text:`探测完成：${r.finalProvider||r.provider||'已获取上游信息'}`});
@@ -752,8 +923,8 @@ async function modelAction(action,id,btn){
       MODEL_RESULTS.set(id,{ok:true,text:txt}); toast(txt);
     }
     [DATA,HISTORY]=await Promise.all([api('/api/models'),api('/api/history').then(x=>x.history||[])]);
-    renderModels();
-  }catch(e){ MODEL_RESULTS.set(id,{ok:false,text:errMsg(e)}); toast(errMsg(e),'bad',5000); renderModels(); }
+    renderCurrent();
+  }catch(e){ MODEL_RESULTS.set(id,{ok:false,text:errMsg(e)}); toast(errMsg(e),'bad',5000); renderCurrent(); }
   finally{ if(btn){btn.disabled=false;btn.textContent=old} }
 }
 
@@ -762,20 +933,26 @@ function ensureProviderModel(){
 }
 function renderProviders(){
   ensureProviderModel();
+  localStorage.setItem('cps_provider_model',providerModelId);
   $('#providerModel').innerHTML=(DATA.subscription||[]).map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
   $('#providerModel').value=providerModelId;
   const s=modelById(providerModelId); if(!s) return;
   const cfg=s.config||{}, meta=s.meta||{}, all=meta.upstreams||[];
+  const channel=meta.pipeline==='planner'?'Vercel':meta.pipeline==='openrouter'?'OpenRouter':meta.pipeline||'';
+  const channelBadge=$('#providerChannelBadge');
+  channelBadge.className=`badge provider-channel-badge ${meta.pinnable===true?'ok':meta.pinnable===false?'warn':'dim'}`;
+  channelBadge.textContent=channel
+    ? `${meta.pinnable===false?'暂不支持精确锚定':'可精确锚定'} · ${channel}`
+    : '尚未探测路由';
   $('#routeMode').value=cfg.pinMode==='preferred'?'preferred':'strict';
   $('#routeSort').value=cfg.sort||'';
-  $('#providerSummary').textContent=`${all.length} 个已收录上游 · 最近命中 ${meta.lastProvider||'—'}`;
-  const validated=VALIDATION_RESULTS.get(providerModelId)||null;
-  if(validated){
-    const counts={ok:0,limited:0,bad:0,auth:0,unknown:0};
-    for(const u of all){ const st=upstreamState(meta,u,providerModelId); counts[st]=(counts[st]||0)+1; }
+  const counts={ok:0,limited:0,bad:0,auth:0,unknown:0};
+  for(const u of all){const st=upstreamState(meta,u,providerModelId);counts[st]=(counts[st]||0)+1}
+  $('#providerSummary').textContent=`${all.length} 个 · 可用 ${counts.ok||0} · 限流 ${counts.limited||0} · 不可用 ${(counts.bad||0)+(counts.auth||0)}${meta.validatedAt?` · ${fmtDateTime(meta.validatedAt)}`:''}`;
+  if(meta.validatedAt||VALIDATION_RESULTS.has(providerModelId)){
     $('#providerLegend').innerHTML=`${statusPill('ok').replace('可用',`可用 ${counts.ok||0}`)}${statusPill('limited').replace('限流',`限流 ${counts.limited||0}`)}${statusPill('bad').replace('不可用',`不可用 ${counts.bad||0}`)}${statusPill('auth').replace('鉴权失败',`鉴权失败 ${counts.auth||0}`)}`;
   }else{
-    $('#providerLegend').innerHTML=`<span class="status-pill unknown">○ 尚未校验</span><span class="muted" style="font-size:10px;align-self:center">点击“校验全部上游”后会用绿色 / 黄色 / 红色标出状态</span>`;
+    $('#providerLegend').innerHTML='<span class="status-pill unknown">○ 尚未校验</span><span class="muted" style="font-size:11px;align-self:center">校验后才会显示当前可用状态</span>';
   }
 
   const priority=cfg.upstreams||[];
@@ -795,32 +972,48 @@ function renderProviders(){
     <div class="list-item"><div class="list-main"><div class="list-title" style="display:flex;gap:7px;align-items:center;flex-wrap:wrap"><span>${esc(u)}</span>${statusPill(upstreamState(meta,u,providerModelId))}</div><div class="list-sub">此上游不会参与路由</div></div>
     <button class="btn small" data-upstream-state="default" data-upstream="${esc(u)}">取消排除</button></div>`).join(''):'<div class="empty">当前没有排除上游</div>';
 
+  if(!SPEED_RESULTS.has(providerModelId))SPEED_RESULTS.set(providerModelId,Object.values(meta.speedTests||{}));
+  const speedResults=SPEED_RESULTS.get(providerModelId)||[],speedByUpstream=new Map(speedResults.map(r=>[r.upstream,r]));
+  const lastSpeed=Math.max(0,...speedResults.map(r=>Number(r.testedAt)||0));
+  $('#speedSummary').textContent=speedResults.length?`已实测 ${speedResults.length} 个${lastSpeed?` · ${fmtDateTime(lastSpeed)}`:''}`:'选择上游厂商进行本机实测';
   const q=$('#providerSearch').value.trim().toLowerCase();
-  const rows=all.filter(u=>!q||u.toLowerCase().includes(q)||(upstreamDetail(meta,u)?.name||'').toLowerCase().includes(q));
-  $('#providerList').innerHTML=rows.map((u,i)=>{
+  const rows=all.filter(u=>{
+    if(q&&!u.toLowerCase().includes(q)&&!(upstreamDetail(meta,u)?.name||'').toLowerCase().includes(q))return false;
+    const st=upstreamState(meta,u,providerModelId);
+    if(providerFilter==='ok')return st==='ok';
+    if(providerFilter==='priority')return priority.includes(u);
+    if(providerFilter==='exclude')return excluded.includes(u);
+    if(providerFilter==='unknown')return st==='unknown';
+    return true;
+  });
+  const openProvider=$('.provider-row[open]')?.dataset.upstreamDetail||'';
+  $('#providerList').innerHTML=rows.map((u)=>{
     const state=priority.includes(u)?'priority':excluded.includes(u)?'exclude':'default';
-    const d=upstreamDetail(meta,u), st=upstreamState(meta,u,providerModelId), rank=priority.indexOf(u);
-    const metrics=[
-      d?.tps!=null?`${fmtNum(d.tps)} tok/s`:null,
-      d?.ttft!=null?`首包 ${fmtNum(d.ttft/1000,2)}s`:null,
-      d?.input!=null?`输入 $${fmtNum(d.input,3)}/M`:null,
-      d?.output!=null?`输出 $${fmtNum(d.output,3)}/M`:null
-    ].filter(Boolean).join(' · ');
+    const d=upstreamDetail(meta,u),st=upstreamState(meta,u,providerModelId),rank=priority.indexOf(u),actual=speedByUpstream.get(u);
+    const actualText=actual?.ok?`本机实测 ${fmtNum(actual.generationSpeed)} tok/s · 首包 ${fmtNum((actual.firstPacketMs||0)/1000,2)}s`:actual?'本机实测失败':'尚未实测';
+    const reference=[d?.tps!=null?`${fmtNum(d.tps)} tok/s`:null,d?.ttft!=null?`首包 ${fmtNum(d.ttft/1000,2)}s`:null,d?.input!=null?`输入 $${fmtNum(d.input,3)}/M`:null,d?.output!=null?`输出 $${fmtNum(d.output,3)}/M`:null].filter(Boolean).join(' · ');
     const test=PROVIDER_TEST_RESULTS.get(`${providerModelId}::${u}`) || null;
-    return `<div class="provider-row status-${['ok','limited','bad','auth'].includes(st)?st:'unknown'}">
-      <div><div class="provider-name"><span>${esc(u)}</span>${rank>=0?`<span class="badge">优先 ${rank+1}</span>`:''}${statusPill(st)}</div>
-      <div class="provider-sub">${esc(d?.name||'')}${metrics?` · ${esc(metrics)}`:''}${validationEntry(providerModelId,u)?.error?` · ${esc(String(validationEntry(providerModelId,u).error).slice(0,120))}`:''}</div></div>
-      <div class="provider-controls">
-        <button class="btn small" data-provider-test="${esc(u)}">测试此上游</button>
-        <div class="segment">
-          <button data-upstream-state="default" data-upstream="${esc(u)}" class="${state==='default'?'on-default':''}">默认</button>
-          <button data-upstream-state="priority" data-upstream="${esc(u)}" class="${state==='priority'?'on-priority':''}">优先</button>
-          <button data-upstream-state="exclude" data-upstream="${esc(u)}" class="${state==='exclude'?'on-exclude':''}">排除</button>
+    return `<details class="provider-row status-${['ok','limited','bad','auth'].includes(st)?st:'unknown'}" data-upstream-detail="${esc(u)}" ${openProvider===u?'open':''}>
+      <summary><div class="list-main"><div class="provider-name"><span>${esc(u)}</span>${rank>=0?`<span class="badge">首选 ${rank+1}</span>`:''}${statusPill(st)}</div><div class="provider-sub">${esc(actualText)}</div></div></summary>
+      <div class="provider-row-detail">
+        <div class="provider-row-metrics"><span><strong>本机实测：</strong>${esc(actualText)}</span>${actual?.testedAt?`<span>${esc(fmtDateTime(actual.testedAt))}</span>`:''}</div>
+        <div class="provider-row-metrics"><span><strong>公开参考：</strong>${esc(reference||'暂无参考指标')}</span></div>
+        ${validationEntry(providerModelId,u)?.error?`<div class="bad" style="font-size:11px;margin-bottom:10px">${esc(String(validationEntry(providerModelId,u).error).slice(0,160))}</div>`:''}
+        <div class="provider-controls">
+          <button class="btn small" data-provider-test="${esc(u)}">检查可用性</button>
+          <button class="btn small" data-provider-speed="${esc(u)}">性能测速</button>
+          <div class="segment">
+            <button data-upstream-state="default" data-upstream="${esc(u)}" class="${state==='default'?'on-default':''}">自动</button>
+            <button data-upstream-state="priority" data-upstream="${esc(u)}" class="${state==='priority'?'on-priority':''}">首选</button>
+            <button data-upstream-state="exclude" data-upstream="${esc(u)}" class="${state==='exclude'?'on-exclude':''}">排除</button>
+          </div>
         </div>
+        ${test?`<div class="provider-test-result ${test.kind||'bad'}">${esc(test.text)}</div>`:''}
       </div>
-      ${test?`<div class="provider-test-result ${test.ok?'good':'bad'}">${esc(test.text)}</div>`:''}
-    </div>`;
-  }).join('')||'<div class="empty">没有匹配的上游</div>';
+    </details>`;
+  }).join('')||(all.length?'<div class="empty">当前筛选条件下没有上游</div>':`<div class="empty">还没有发现上游<br><button class="btn" data-model-action="probe" data-model="${esc(providerModelId)}" style="margin-top:10px">立即探测此模型</button></div>`);
+  $$('.filter-chip').forEach(x=>x.classList.toggle('active',x.dataset.providerFilter===providerFilter));
+  renderSpeedPicks();renderSpeedResults(speedResults);
 }
 async function saveModelCfg(model,cfg){
   await api('/api/config',{perModel:{[model]:{
@@ -834,9 +1027,9 @@ async function setUpstreamState(u,state){
   const s=modelById(providerModelId), cfg=structuredClone(s.config||{});
   cfg.upstreams=cfg.upstreams||[]; cfg.exclude=cfg.exclude||[];
   cfg.upstreams=cfg.upstreams.filter(x=>x!==u); cfg.exclude=cfg.exclude.filter(x=>x!==u);
-  if(state==='priority') cfg.upstreams.push(u);
+  if(state==='priority') cfg.upstreams.unshift(u);
   if(state==='exclude') cfg.exclude.push(u);
-  try{await saveModelCfg(providerModelId,cfg);toast(`${u} 已设为${state==='priority'?'优先':state==='exclude'?'排除':'默认'}`)}
+  try{await saveModelCfg(providerModelId,cfg);toast(`${u} 已设为${state==='priority'?'首选':state==='exclude'?'排除':'自动'}`)}
   catch(e){toast(errMsg(e),'bad')}
 }
 async function movePriority(u,dir){
@@ -850,12 +1043,14 @@ async function testProvider(u,btn){
     const r=await api('/api/test',{model:providerModelId,upstream:u,exclude:[],pinMode:'strict'});
     const matched=!!r.ok && providerMatch(u,r.actual);
     const text=r.ok
-      ? `${matched?'✓ 指定成功':'✕ 未精确命中'} · 目标 ${u} → 实际 ${r.actual||'unknown'} · ${fmtDur(r.ms)}`
+      ? matched
+        ? `✓ 已命中（${providerMatchLabel(u,r.actual)}）· 目标 ${u} · 网关返回 ${r.actual||'unknown'} · ${fmtDur(r.ms)}`
+        : `△ 请求成功但未按指定上游命中 · 目标 ${u} · 网关返回 ${r.actual||'unknown'} · ${fmtDur(r.ms)}`
       : `✕ 测试失败 · ${r.error||'未知错误'}`;
-    PROVIDER_TEST_RESULTS.set(`${providerModelId}::${u}`,{ok:matched,text});
-    toast(text,matched?'ok':'bad',5000);
+    PROVIDER_TEST_RESULTS.set(`${providerModelId}::${u}`,{kind:matched?'good':r.ok?'warn':'bad',text});
+    toast(text,matched?'ok':r.ok?'warn':'bad',5000);
   }catch(e){
-    PROVIDER_TEST_RESULTS.set(`${providerModelId}::${u}`,{ok:false,text:`✕ 测试失败 · ${errMsg(e)}`});
+    PROVIDER_TEST_RESULTS.set(`${providerModelId}::${u}`,{kind:'bad',text:`✕ 测试失败 · ${errMsg(e)}`});
     toast(errMsg(e),'bad',5000);
   }finally{if(btn){btn.disabled=false;btn.textContent=old}renderProviders()}
 }
@@ -866,25 +1061,21 @@ async function testCurrentRoute(btn){
   try{
     const s=modelById(providerModelId), cfg=s?.config||{}, expected=(cfg.upstreams||[])[0]||null;
     const r=await api('/api/test',{model:providerModelId});
-    const ok=!!r.ok;
+    const ok=!!r.ok, matched=!expected||providerMatch(expected,r.actual);
     const pinText=expected?`首选 ${expected}`:'未指定首选上游';
-    box.classList.add(ok?'good':'bad');
+    box.classList.add(ok?(matched?'good':'warn'):'bad');
     box.textContent=ok
-      ? `当前路由测试成功 · ${pinText} · 实际命中 ${r.actual||'unknown'} · ${fmtDur(r.ms)}${expected?` · ${providerMatch(expected,r.actual)?'首选命中':'发生回退/未命中首选'}`:''}`
+      ? `当前路由测试成功 · ${pinText} · 网关返回 ${r.actual||'unknown'} · ${fmtDur(r.ms)}${expected?` · ${matched?`首选命中（${providerMatchLabel(expected,r.actual)}）`:'发生回退或未命中首选'}`:''}`
       : `当前路由测试失败 · ${r.error||'未知错误'}`;
   }catch(e){box.classList.add('bad');box.textContent=`当前路由测试失败 · ${errMsg(e)}`}
   finally{if(btn){btn.disabled=false;btn.textContent=old}}
 }
-
-function renderSpeed(){
-  $('#speedModel').innerHTML=(DATA.subscription||[]).map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
-  if(!$('#speedModel').value) $('#speedModel').value=providerModelId||DATA.subscription?.[0]?.id||'';
-  renderSpeedPicks();
-}
 function renderSpeedPicks(){
-  const id=$('#speedModel').value, s=modelById(id), ups=s?.meta?.upstreams||[];
-  const previous=new Set($$('#speedPicks input:checked').map(x=>x.value));
-  $('#speedPicks').innerHTML=ups.map(u=>`<label class="pick"><input type="checkbox" value="${esc(u)}" ${previous.size===0||previous.has(u)?'checked':''}><span>${esc(u)}</span></label>`).join('')||'<div class="empty">此模型暂无上游，请先到模型页探测</div>';
+  const id=providerModelId,s=modelById(id),ups=s?.meta?.upstreams||[];
+  if(!SPEED_SELECTION_TOUCHED.has(id))SPEED_SELECTIONS.set(id,new Set(ups));
+  const selected=SPEED_SELECTIONS.get(id);
+  for(const u of [...selected])if(!ups.includes(u))selected.delete(u);
+  $('#speedPicks').innerHTML=ups.map(u=>`<label class="pick"><input type="checkbox" value="${esc(u)}" ${selected.has(u)?'checked':''}><span>${esc(u)}</span></label>`).join('')||`<div class="empty">还没有发现上游<br><button class="btn" data-model-action="probe" data-model="${esc(id)}" style="margin-top:10px">立即探测此模型</button></div>`;
 }
 function renderSpeedResults(results=[]){
   const sorted=[...results].sort((a,b)=>(Number(b.generationSpeed)||-1)-(Number(a.generationSpeed)||-1));
@@ -902,26 +1093,45 @@ function renderSpeedResults(results=[]){
         <div class="metric"><div class="metric-k">输入价格</div><div class="metric-v">${d.input!=null?'$'+fmtNum(d.input,3)+'/M':'—'}</div></div>
         <div class="metric"><div class="metric-k">输出价格</div><div class="metric-v">${d.output!=null?'$'+fmtNum(d.output,3)+'/M':'—'}</div></div>
       </div>
+      <button class="btn small" data-upstream-state="priority" data-upstream="${esc(r.upstream)}" style="width:100%;margin-top:10px">设为首选上游</button>
     </div>`;
   }).join('');
 }
 async function runSpeed(){
-  const id=$('#speedModel').value, selected=$$('#speedPicks input:checked').map(x=>x.value);
+  const id=providerModelId, selected=$$('#speedPicks input:checked').map(x=>x.value);
   if(!selected.length){toast('请至少选择一个上游','warn');return}
   speedRunning=true; speedAbort=new AbortController();
+  $('#providerModel').disabled=true;
   $('#speedRunBtn').classList.add('hidden');$('#speedCancelBtn').classList.remove('hidden');$('#speedProgressWrap').classList.remove('hidden');
-  const results=[];
+  const results=(SPEED_RESULTS.get(id)||[]).filter(r=>!selected.includes(r.upstream));let completed=0;
   for(let i=0;i<selected.length;i++){
     if(speedAbort.signal.aborted)break;
     $('#speedProgressText').textContent=`正在测速 ${i+1}/${selected.length}：${selected[i]}`;
     $('#speedProgressBar').style.width=`${i/selected.length*100}%`;
-    try{const r=await rawApi('/api/speed-test',{model:id,upstream:selected[i]},speedAbort.signal);results.push({...r,upstream:selected[i]})}
-    catch(e){if(speedAbort.signal.aborted)break;results.push({ok:false,upstream:selected[i],error:errMsg(e)})}
+    try{const r=await rawApi('/api/speed-test',{model:id,upstream:selected[i]},speedAbort.signal);results.push({...r,upstream:selected[i],testedAt:r.testedAt||Date.now()})}
+    catch(e){if(speedAbort.signal.aborted)break;results.push({ok:false,upstream:selected[i],error:errMsg(e),testedAt:Date.now()})}
+    completed++;
+    SPEED_RESULTS.set(id,[...results]);
     renderSpeedResults(results);
   }
   $('#speedProgressBar').style.width='100%';
-  $('#speedProgressText').textContent=speedAbort.signal.aborted?'测速已停止':`测速完成：${results.length}/${selected.length}`;
-  $('#speedRunBtn').classList.remove('hidden');$('#speedCancelBtn').classList.add('hidden');speedRunning=false;
+  $('#speedProgressText').textContent=speedAbort.signal.aborted?`测速已停止：${completed}/${selected.length}`:`测速完成：${completed}/${selected.length}`;
+  $('#speedRunBtn').classList.remove('hidden');$('#speedCancelBtn').classList.add('hidden');$('#providerModel').disabled=false;speedRunning=false;
+  renderProviders();
+}
+async function runSingleSpeed(upstream,btn){
+  if(speedRunning)return toast('批量测速正在进行','warn');
+  const id=providerModelId,old=btn.textContent;btn.disabled=true;btn.textContent='测速中…';
+  try{
+    const r=await rawApi('/api/speed-test',{model:id,upstream});
+    const list=(SPEED_RESULTS.get(id)||[]).filter(x=>x.upstream!==upstream);
+    list.push({...r,upstream,testedAt:r.testedAt||Date.now()});SPEED_RESULTS.set(id,list);
+    renderProviders();toast(`${upstream} 测速完成 · ${fmtNum(r.generationSpeed)} tok/s`);
+  }catch(e){
+    const list=(SPEED_RESULTS.get(id)||[]).filter(x=>x.upstream!==upstream);
+    list.push({ok:false,upstream,error:errMsg(e),testedAt:Date.now()});SPEED_RESULTS.set(id,list);
+    renderProviders();toast(errMsg(e),'bad',5000);
+  }finally{btn.disabled=false;btn.textContent=old}
 }
 
 function renderAccounts(){
@@ -989,6 +1199,31 @@ function renderRequests(){
       <button class="btn small danger" data-abort-stream="${s.id}" style="margin-top:10px">终止此请求</button>
     </div>`;
   }).join('')||'<div class="empty">当前没有活动请求</div>';
+  $('#requestRecentHistory').innerHTML=HISTORY.slice(0,8).map(h=>`
+    <div class="list-item">
+      <span class="dot ${h.error?'bad':''}"></span>
+      <div class="list-main"><div class="list-title">${esc(shortModel(h.model))}</div>
+      <div class="list-sub">${esc(h.provider||'unknown')} · ${fmtDur(h.ms)}${h.account?' · '+esc(h.account):''}</div></div>
+      <span class="badge ${h.error?'bad':'ok'}">${h.error?'失败':'成功'}</span>
+    </div>`).join('')||'<div class="empty">暂无请求历史</div>';
+  renderHistory();
+  $('#requestUpdatedAt').textContent=requestUpdatedAt?`更新于 ${fmtTime(requestUpdatedAt)}`:'自动刷新已开启';
+}
+function setRequestView(view,updateUrl=true){
+  requestView=view==='history'?'history':'live';
+  $$('.tab-btn[data-request-view]').forEach(x=>x.classList.toggle('active',x.dataset.requestView===requestView));
+  $('#requestLiveView').classList.toggle('active',requestView==='live');
+  $('#requestHistoryView').classList.toggle('active',requestView==='history');
+  if(updateUrl)window.history.replaceState(null,'',`#requests?view=${requestView}`);
+  if(requestView==='history')renderHistory();else renderRequests();
+}
+async function refreshRequestsNow(btn,showToast=true){
+  const old=btn?.textContent;if(btn){btn.disabled=true;btn.classList.add('loading');btn.textContent='刷新中…'}
+  try{
+    const [runtime,history]=await Promise.all([api('/api/runtime'),api('/api/history')]);
+    RUNTIME=runtime;HISTORY=history.history||[];requestUpdatedAt=Date.now();lastRuntimeFetch=requestUpdatedAt;lastHistoryFetch=requestUpdatedAt;
+    renderHealth();renderRequests();if(showToast)toast('请求状态已刷新');
+  }catch(e){if(showToast)toast(errMsg(e),'bad')}finally{if(btn){btn.disabled=false;btn.classList.remove('loading');btn.textContent=old}}
 }
 async function abortStream(id){
   if(!confirm(`确认终止请求 #${id}？只会中止这一条流，不会重启整个网关。`))return;
@@ -1053,24 +1288,33 @@ async function fetchOfficial(btn){
   try{const r=await api('/api/fetch-official-models',{});DATA=await api('/api/models');toast(`模型清单已更新：新增 ${r.added?.length||0} 个`);renderCurrent()}
   catch(e){toast(errMsg(e),'bad')}finally{btn.disabled=false;btn.textContent=old}
 }
-async function probeVisible(){
-  const ids=$$('#modelGrid .model-card').map(x=>x.dataset.model);
-  if(!ids.length)return;const btn=$('#probeVisibleBtn'),old=btn.textContent;btn.disabled=true;
-  for(let i=0;i<ids.length;i++){
-    btn.textContent=`探测 ${i+1}/${ids.length}`;
-    try{await api('/api/probe',{model:ids[i]});MODEL_RESULTS.set(ids[i],{ok:true,text:'探测完成'})}
-    catch(e){MODEL_RESULTS.set(ids[i],{ok:false,text:errMsg(e)})}
-    renderModels();
-  }
-  DATA=await api('/api/models');btn.disabled=false;btn.textContent=old;renderModels();toast('当前筛选模型探测完成')
+async function probeAllModels(btn){
+  const ids=(DATA?.subscription||[]).map(x=>x.id);
+  if(!ids.length)return toast('暂无可探测模型','warn');
+  const old=btn.textContent;btn.disabled=true;
+  let succeeded=0;
+  try{
+    for(let i=0;i<ids.length;i++){
+      btn.textContent=`探测 ${i+1}/${ids.length}`;
+      try{await api('/api/probe',{model:ids[i]});MODEL_RESULTS.set(ids[i],{ok:true,text:'探测完成'});succeeded++}
+      catch(e){MODEL_RESULTS.set(ids[i],{ok:false,text:errMsg(e)})}
+    }
+    DATA=await api('/api/models');renderProviders();
+    toast(`全部模型探测完成：成功 ${succeeded}/${ids.length}`,succeeded===ids.length?'ok':'warn',5000)
+  }catch(e){toast(errMsg(e),'bad',5000)}finally{btn.disabled=false;btn.textContent=old}
 }
 
 document.addEventListener('click',async e=>{
-  const nav=e.target.closest('[data-route]');if(nav){go(nav.dataset.route);return}
+  const nav=e.target.closest('[data-route]');if(nav){go(nav.dataset.route,nav.dataset.openRequestView?{view:nav.dataset.openRequestView}:{});return}
+  const requestTab=e.target.closest('[data-request-view]');if(requestTab){setRequestView(requestTab.dataset.requestView);return}
+  const dashProvider=e.target.closest('[data-dashboard-provider]');if(dashProvider){await setDashboardProvider(dashProvider.dataset.dashboardProvider);return}
+  const dashProviderDefault=e.target.closest('[data-dashboard-provider-default]');if(dashProviderDefault){await clearDashboardProvider(dashProviderDefault.dataset.dashboardProviderDefault);return}
   const ma=e.target.closest('[data-model-action]');if(ma){await modelAction(ma.dataset.modelAction,ma.dataset.model,ma);return}
   const st=e.target.closest('[data-upstream-state]');if(st){await setUpstreamState(st.dataset.upstream,st.dataset.upstreamState);return}
   const od=e.target.closest('[data-order]');if(od){await movePriority(od.dataset.upstream,od.dataset.order);return}
   const pt=e.target.closest('[data-provider-test]');if(pt){await testProvider(pt.dataset.providerTest,pt);return}
+  const ps=e.target.closest('[data-provider-speed]');if(ps){await runSingleSpeed(ps.dataset.providerSpeed,ps);return}
+  const pf=e.target.closest('[data-provider-filter]');if(pf){providerFilter=pf.dataset.providerFilter;renderProviders();return}
   const ab=e.target.closest('[data-abort-stream]');if(ab){await abortStream(ab.dataset.abortStream);return}
   const at=e.target.closest('[data-account-test]');if(at){
     const card=at.closest('.account-card'),key=$('[data-acc-field="key"]',card).value.trim();
@@ -1083,17 +1327,24 @@ document.addEventListener('click',async e=>{
   }
   const hr=e.target.closest('.history-row');if(hr){hr.classList.toggle('open');return}
 });
-$('#drawerBackdrop').addEventListener('click',()=>document.body.classList.remove('drawer-open'));
-$('#menuBtn').addEventListener('click',()=>document.body.classList.toggle('drawer-open'));
-$('#refreshBtn').addEventListener('click',async()=>{try{await loadCore();toast('已刷新')}catch(e){toast(errMsg(e),'bad')}});
+document.addEventListener('toggle',e=>{
+  if(!e.target.matches?.('.provider-row[open]'))return;
+  $$('.provider-row[open]').forEach(x=>{if(x!==e.target)x.open=false});
+},true);
+$('#mobileBackBtn').addEventListener('click',()=>go('settings'));
+$('#refreshBtn').addEventListener('click',async e=>{
+  const btn=e.currentTarget;btn.classList.add('loading');btn.disabled=true;
+  try{requestUpdatedAt=Date.now();await loadCore();toast('当前页面已刷新')}catch(err){toast(errMsg(err),'bad')}finally{btn.classList.remove('loading');btn.disabled=false}
+});
 $('#proxyChip').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(DATA?.proxyBase||META?.proxyBase||'');toast('代理地址已复制')}catch{toast('复制失败','bad')}});
 $("#dashCopyProxyBtn").addEventListener("click",async()=>{try{await navigator.clipboard.writeText(DATA?.proxyBase||META?.proxyBase||"");toast("API Base URL 已复制")}catch{toast("复制失败","bad")}});
-$('#modelSearch').addEventListener('input',renderModels);
-$('#probeVisibleBtn').addEventListener('click',probeVisible);
-$('#fetchOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
-$('#refreshOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
-$('#providerModel').addEventListener('change',e=>{providerModelId=e.target.value;go('providers',{model:providerModelId});renderProviders()});
-$('#providerSearch').addEventListener('input',renderProviders);
+$('#dashModelSelect').addEventListener('change',e=>{dashboardModelId=e.target.value;localStorage.setItem('cps_dashboard_model',dashboardModelId);renderDashboard()});
+$('#dashProbeBtn').addEventListener('click',e=>dashboardAction('probe',e.currentTarget));
+$('#dashValidateBtn').addEventListener('click',e=>dashboardAction('validate',e.currentTarget));
+$('#providerModel').addEventListener('change',e=>{if(speedRunning){e.target.value=providerModelId;return toast('请先停止当前测速','warn')}providerModelId=e.target.value;localStorage.setItem('cps_provider_model',providerModelId);go('providers',{model:providerModelId});renderProviders()});
+$('#providerFetchOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
+$('#providerProbeAllBtn').addEventListener('click',e=>probeAllModels(e.currentTarget));
+$('#providerSearch').addEventListener('input',()=>{$('#allProvidersDetails').open=true;renderProviders()});
 $('#routeMode').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.pinMode=e.target.value;try{await saveModelCfg(providerModelId,c);toast('路由模式已保存')}catch(err){toast(errMsg(err),'bad')}});
 $('#routeSort').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.sort=e.target.value||null;try{await saveModelCfg(providerModelId,c);toast('排序策略已保存')}catch(err){toast(errMsg(err),'bad')}});
 $('#providerProbeBtn').addEventListener('click',async e=>{await modelAction('probe',providerModelId,e.currentTarget);DATA=await api('/api/models');renderProviders()});
@@ -1104,15 +1355,15 @@ $('#addProviderBtn').addEventListener('click',async()=>{
   try{await api('/api/watch-upstream',{model:providerModelId,upstream:u});$('#customProvider').value='';DATA=await api('/api/models');renderProviders();toast('上游已加入监查列表')}
   catch(e){toast(errMsg(e),'bad')}
 });
-$('#speedModel').addEventListener('change',renderSpeedPicks);
-$('#speedAllBtn').addEventListener('click',()=>$$('#speedPicks input').forEach(x=>x.checked=true));
-$('#speedNoneBtn').addEventListener('click',()=>$$('#speedPicks input').forEach(x=>x.checked=false));
+$('#speedPicks').addEventListener('change',()=>{SPEED_SELECTION_TOUCHED.add(providerModelId);SPEED_SELECTIONS.set(providerModelId,new Set($$('#speedPicks input:checked').map(x=>x.value)))});
+$('#speedAllBtn').addEventListener('click',()=>{SPEED_SELECTION_TOUCHED.add(providerModelId);const values=$$('#speedPicks input').map(x=>{x.checked=true;return x.value});SPEED_SELECTIONS.set(providerModelId,new Set(values))});
+$('#speedNoneBtn').addEventListener('click',()=>{SPEED_SELECTION_TOUCHED.add(providerModelId);$$('#speedPicks input').forEach(x=>x.checked=false);SPEED_SELECTIONS.set(providerModelId,new Set())});
 $('#speedRunBtn').addEventListener('click',runSpeed);
 $('#speedCancelBtn').addEventListener('click',()=>speedAbort?.abort());
 $('#addAccountBtn').addEventListener('click',addAccount);
 $('#saveAccountsBtn').addEventListener('click',saveAccounts);
 $('#showAccountKeys').addEventListener('change',renderAccounts);
-$('#requestRefreshBtn').addEventListener('click',refreshRuntime);
+$('#requestRefreshBtn').addEventListener('click',e=>refreshRequestsNow(e.currentTarget));
 $('#historySearch').addEventListener('input',()=>{historyLimit=25;renderHistory()});
 $('#historyFilter').addEventListener('change',()=>{historyLimit=25;renderHistory()});
 $('#historyMoreBtn').addEventListener('click',()=>{historyLimit+=25;renderHistory()});
@@ -1127,6 +1378,25 @@ $('#loginBtn').addEventListener('click',async()=>{
 $('#loginKey').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 window.addEventListener('hashchange',routeFromHash);
 
+async function autoRefresh(force=false){
+  if(document.hidden||autoRefreshBusy||!DATA)return;
+  const now=Date.now(),active=(RUNTIME?.activeStreams||[]).length>0;
+  const onDashboard=currentRoute==='dashboard',onRequests=currentRoute==='requests';
+  const needRuntime=force||(onDashboard&&now-lastRuntimeFetch>=5000)||(onRequests&&requestView==='live'&&now-lastRuntimeFetch>=(active?2000:10000));
+  const needHistory=force||(onDashboard&&now-lastHistoryFetch>=5000)||(onRequests&&now-lastHistoryFetch>=10000);
+  if(!needRuntime&&!needHistory)return;
+  autoRefreshBusy=true;
+  try{
+    const jobs=[];
+    if(needRuntime)jobs.push(api('/api/runtime').then(x=>{RUNTIME=x;lastRuntimeFetch=Date.now()}));
+    if(needHistory)jobs.push(api('/api/history').then(x=>{HISTORY=x.history||[];lastHistoryFetch=Date.now()}));
+    await Promise.all(jobs);requestUpdatedAt=Date.now();renderHealth();
+    if(onDashboard)renderDashboard();
+    if(onRequests)renderRequests();
+  }catch{}finally{autoRefreshBusy=false}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)autoRefresh(true)});
+
 (async function boot(){
   try{
     await loadMeta();
@@ -1138,8 +1408,7 @@ window.addEventListener('hashchange',routeFromHash);
     else toast(`初始化失败：${errMsg(e)}`,'bad',6000);
   }
 })();
-setInterval(refreshRuntime,2500);
-setInterval(refreshHistory,10000);
+setInterval(autoRefresh,2000);
 </script>
 </body>
 </html>
