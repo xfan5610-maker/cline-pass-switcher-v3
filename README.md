@@ -26,6 +26,7 @@
 - 📈 **请求观测**：查看实时请求、请求历史、实际命中上游、耗时、错误和尝试序列。
 - 🔑 **代理密钥**：下游客户端的代理密钥与 Cline Pass 上游 API Key 分离。
 - 🌐 **OpenAI 兼容接口**：客户端只需填写控制台中的 API Base URL。
+- 🧾 **路由证据 JSON**：探测、路由测试与测速返回统一的实际命中、候选上游、尝试链路和可识别响应头。
 
 ---
 
@@ -272,6 +273,35 @@ Cline Pass 模型在 Cline 网关之后可能使用两种路由管道：
 最快首包
 最高吞吐
 ```
+
+---
+
+# 路由证据 JSON
+
+诊断接口统一附带 `evidence` 字段，用于区分“已确认的实际上游”和“仅作为候选的供应商”。返回结构为：
+
+```json
+{
+  "schema": "cline-pass/upstream-evidence-v1",
+  "confidence": "confirmed",
+  "actual": { "provider": "anthropic", "source": "gateway.routing.finalProvider" },
+  "routing": { "pipeline": "planner", "canonicalSlug": "anthropic/claude-sonnet-5" },
+  "candidates": ["anthropic", "bedrock", "vertex"],
+  "attempts": [],
+  "responseHeaders": {}
+}
+```
+
+可使用的诊断接口：
+
+```text
+POST /api/probe                    探测模型并保存最新证据
+POST /api/test                     测试当前路由并返回本次证据
+POST /api/speed-test               测速并返回本次证据
+GET  /api/route-evidence?model=…  读取最近一次探测证据
+```
+
+`confidence=confirmed` 仅在响应明确提供最终供应商时出现；`candidate` 表示仅发现候选列表或公开元数据，不能据此断言实际命中。该功能不会改变 `/v1/chat/completions` 的 OpenAI 兼容响应或流式 SSE 格式。
 
 ---
 
