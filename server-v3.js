@@ -134,6 +134,14 @@ function migrateHistoryStorage() {
       dirty = true;
     }
   }
+  // 清理早期版本遗留的消息原文；历史详情从此只保留输出、路由和失败信息。
+  for (const detail of Object.values(META.historyDetails)) {
+    if (detail?.exchange && Object.hasOwn(detail.exchange, 'request')) {
+      delete detail.exchange.request;
+      detail.exchange.schema = 'cline-pass/output-history-v1';
+      dirty = true;
+    }
+  }
   if (META.history.length > HISTORY_MAX) { trimHistory(); dirty = true; }
   if (dirty) saveMeta();
 }
@@ -640,8 +648,27 @@ function historySafe(value, depth = 0) {
       ? '[redacted]' : historySafe(item, depth + 1),
   ]));
 }
+function contextSummary(request) {
+  const messages = Array.isArray(request?.messages) ? request.messages : [];
+  let estimatedChars = 0;
+  for (const message of messages) {
+    try { estimatedChars += JSON.stringify(message).length; } catch {}
+  }
+  return {
+    messageCount: messages.length,
+    estimatedChars,
+    hasSystem: messages.some((message) => message?.role === 'system'),
+    hasTools: Array.isArray(request?.tools) && request.tools.length > 0,
+  };
+}
 function historyExchange(request, response, failure = null) {
-  return historySafe({ schema: 'cline-pass/request-history-v1', request, response: response || null, failure: failure || null });
+  // 不保存 messages、prompt 或工具定义原文；仅保留无内容的上下文摘要。
+  return historySafe({
+    schema: 'cline-pass/output-history-v1',
+    context: contextSummary(request),
+    response: response || null,
+    failure: failure || null,
+  });
 }
 function historyOutputPreview(exchange) {
   const response = exchange?.response;
