@@ -1267,8 +1267,11 @@ function renderHistory(){
     return !q||blob.includes(q);
   });
   const shown=rows.slice(0,historyLimit);
-  $('#historyList').innerHTML=shown.map((h,i)=>`
-    <div class="history-row" data-history-index="${i}">
+  $('#historyList').innerHTML=shown.map(h=>{
+    const detail=HISTORY_DETAILS.get(h.id);
+    const isOpen=HISTORY_OPEN.has(h.id);
+    return `
+    <div class="history-row ${isOpen?'open':''}" data-history-id="${esc(h.id||'')}">
       <div class="history-head">
         <div class="history-time">${fmtTime(h.ts)}</div>
         <div class="history-main"><div class="list-title">${esc(shortModel(h.model))}</div>
@@ -1283,9 +1286,11 @@ function renderHistory(){
         ${historyOutput(h)?`<div><b>模型输出：</b>${esc(shortHistoryText(historyOutput(h)))}</div>`:''}
         ${h.error?`<div class="bad"><b>失败原因：</b>${esc(shortHistoryText(historyFailure(h),400))}</div>`:''}
         ${h.trace?`<div><b>Trace：</b>${esc(JSON.stringify(h.trace))}</div>`:''}
-        ${h.exchange?`<details class="history-json"><summary>查看完整 JSON（点开后可长按复制）</summary><pre style="max-height:52vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word">${esc(JSON.stringify({exchange:h.exchange,routeEvidence:h.routeEvidence||null},null,2))}</pre></details>`:''}
+        ${h.id?`<button class="btn small" data-history-json="${esc(h.id)}" style="margin-top:10px">查看完整 JSON</button>`:''}
+        ${detail?`<details class="history-json" open><summary>完整 JSON（可长按复制）</summary><pre style="max-height:52vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word">${esc(JSON.stringify({exchange:detail.exchange,routeEvidence:detail.routeEvidence||h.routeEvidence||null},null,2))}</pre></details>`:''}
       </div>
-    </div>`).join('')||'<div class="empty">没有匹配的历史记录</div>';
+    </div>`;
+  }).join('')||'<div class="empty">没有匹配的历史记录</div>';
   $('#historyMoreBtn').classList.toggle('hidden',shown.length>=rows.length);
 }
 function renderSettingsRuntime(){
