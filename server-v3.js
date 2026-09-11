@@ -172,6 +172,11 @@ const chatHeaders = (key) => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${key}`,
 });
+// 仅诊断请求申请 OpenRouter 的路由元数据；普通代理请求保持 OpenAI 兼容响应不变。
+const diagnosticHeaders = (key) => ({
+  ...chatHeaders(key),
+  'X-OpenRouter-Metadata': 'enabled',
+});
 
 // 代理密钥：非空时，/v1/* 与 /api/* 均需鉴权（Authorization: Bearer <key> 或 X-Admin-Key: <key>）；
 // 控制台页面本身保持开放（不含任何敏感数据，数据由带鉴权的 /api/* 提供）。
@@ -429,7 +434,7 @@ async function harvestAvailableProviders(modelId, pipeline) {
   const body = pipeline === 'planner'
     ? { ...base, providerOptions: { gateway: { only: ['__probe__'] } } }
     : { ...base, provider: { only: ['__probe__'] } };
-  const { json } = await fetchJSON(`${config.upstreamBase}/chat/completions`, { method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(body) }, 60000);
+  const { json } = await fetchJSON(`${config.upstreamBase}/chat/completions`, { method: 'POST', headers: diagnosticHeaders(acc.key), body: JSON.stringify(body) }, 60000);
   const providers = errorProviders(json?.error);
   return providers.length ? providers : null;
 }
@@ -445,7 +450,7 @@ async function probeModel(modelId) {
   const body = { model: modelId, messages: [{ role: 'user', content: 'Reply with the word OK' }], max_tokens: 256 };
   const { json, headers } = await fetchJSON(`${config.upstreamBase}/chat/completions`, {
     method: 'POST',
-    headers: chatHeaders(acc.key),
+    headers: diagnosticHeaders(acc.key),
     body: JSON.stringify(body),
   }, 180000);
   const ms = Date.now() - t0;
@@ -1150,7 +1155,7 @@ async function speedTest(model, upstream, signal) {
   }, model, { upstream, strict: true });
   const startedAt = performance.now();
   const response = await fetch(`${config.upstreamBase}/chat/completions`, {
-    method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(body), signal,
+    method: 'POST', headers: diagnosticHeaders(acc.key), body: JSON.stringify(body), signal,
   });
   if (!response.ok) throw new Error(`上游 HTTP ${response.status}：${(await response.text()).slice(0, 500)}`);
   const responseHeaders = visibleResponseHeaders(response.headers);
@@ -1186,7 +1191,8 @@ function rememberSpeedTest(model, upstream, result) {
     matched: result.matched ?? null, generationSpeed: result.generationSpeed ?? null,
     perceivedSpeed: result.perceivedSpeed ?? null, firstPacketMs: result.firstPacketMs ?? null,
     completionTokens: result.completionTokens ?? null, totalMs: result.totalMs ?? null,
-    detail: result.detail || null, error: result.error || null, testedAt: result.testedAt || Date.now(),
+    detail: result.detail || null, evidence: result.evidence || null,
+    error: result.error || null, testedAt: result.testedAt || Date.now(),
   };
   saveMeta();
 }
@@ -1310,7 +1316,7 @@ const server = http.createServer(async (req, res) => {
       }
       const r = parseRouting(chain.out);
       const evidence = buildUpstreamEvidence(chain.out, chain.headers, r, { candidates: (cfg.upstreams || []).filter(Boolean) });
-      record(model, { provider: r.finalProvider, canonical: r.canonicalSlug, ms: Date.now() - t0, stream: false, attempts: trace.map((t) => t.upstream || 'auto'), error: null, account: chain.acc?.name || null });
+      record(model, { provider: r.finalProvider, canonical: r.canonicalSlug, routeEvidence: evidence, ms: Date.now() - t0, stream: false, attempts: trace.map((t) => t.upstream || 'auto'), error: null, account: chain.acc?.name || null });
       return sendJSON(res, 200, {
         ok: true, ms: Date.now() - t0,
         targets: (cfg.upstreams || []).filter(Boolean), exclude: cfg.exclude || [],
