@@ -1351,6 +1351,7 @@ document.addEventListener('click',async e=>{
   const ps=e.target.closest('[data-provider-speed]');if(ps){await runSingleSpeed(ps.dataset.providerSpeed,ps);return}
   const pf=e.target.closest('[data-provider-filter]');if(pf){providerFilter=pf.dataset.providerFilter;renderProviders();return}
   const ab=e.target.closest('[data-abort-stream]');if(ab){await abortStream(ab.dataset.abortStream);return}
+  const hj=e.target.closest('[data-history-json]');if(hj){await loadHistoryDetail(hj.dataset.historyJson,hj);return}
   const at=e.target.closest('[data-account-test]');if(at){
     const card=at.closest('.account-card'),key=$('[data-acc-field="key"]',card).value.trim();
     if(!key)return toast('请先填写 Key','warn');const old=at.textContent;at.disabled=true;at.textContent='测试中…';
@@ -1361,7 +1362,11 @@ document.addEventListener('click',async e=>{
     if(confirm('确认删除这个账号？')){ACC.accounts.splice(Number(ad.dataset.accountDelete),1);renderAccounts()}return
   }
   if(e.target.closest('.history-json'))return;
-  const hr=e.target.closest('.history-row');if(hr){hr.classList.toggle('open');return}
+  const hr=e.target.closest('.history-row');if(hr){
+    const id=hr.dataset.historyId;
+    if(id){HISTORY_OPEN.has(id)?HISTORY_OPEN.delete(id):HISTORY_OPEN.add(id);}
+    hr.classList.toggle('open');return
+  }
 });
 document.addEventListener('toggle',e=>{
   if(!e.target.matches?.('.provider-row[open]'))return;
@@ -1400,6 +1405,7 @@ $('#addAccountBtn').addEventListener('click',addAccount);
 $('#saveAccountsBtn').addEventListener('click',saveAccounts);
 $('#showAccountKeys').addEventListener('change',renderAccounts);
 $('#requestRefreshBtn').addEventListener('click',e=>refreshRequestsNow(e.currentTarget));
+$('#historyClearBtn').addEventListener('click',clearHistory);
 $('#historySearch').addEventListener('input',()=>{historyLimit=25;renderHistory()});
 $('#historyFilter').addEventListener('change',()=>{historyLimit=25;renderHistory()});
 $('#historyMoreBtn').addEventListener('click',()=>{historyLimit+=25;renderHistory()});
