@@ -1111,6 +1111,10 @@ async function handleChat(req, res) {
     config.knownModels.push(modelId);
     saveConfig();
   }
+  const historyError = status !== 200 ? out?.error?.message || errText(out?.error) || 'upstream error' : null;
+  const routeEvidence = buildUpstreamEvidence(out, chain.headers, routing, {
+    candidates: [...targets, ...errorProviders(out?.error)].filter(Boolean),
+  });
   record(modelId, {
     provider: routing.finalProvider || null,
     canonical: routing.canonicalSlug || null,
@@ -1118,8 +1122,11 @@ async function handleChat(req, res) {
     stream: false,
     attempts: chain.trace.map((t) => t.upstream || 'auto'),
     trace: chain.trace,
-    error: status !== 200 ? out?.error?.message || null : null,
+    error: historyError,
     account: acc ? acc.name : null,
+    routeEvidence,
+    exchange: historyExchange(requestHistory, status === 200 ? out : null,
+      status === 200 ? null : { status, error: out?.error || out, trace: chain.trace }),
   });
   res.writeHead(status, {
     'Content-Type': 'application/json',
