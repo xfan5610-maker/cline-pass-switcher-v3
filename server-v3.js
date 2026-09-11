@@ -1067,7 +1067,9 @@ async function handleChat(req, res) {
             const reasoning = delta.reasoning_content ?? delta.reasoning ?? message.reasoning_content ?? message.reasoning;
             if (typeof content === 'string') streamText += content;
             if (typeof reasoning === 'string') streamReasoning += reasoning;
-            for (const call of [...(delta.tool_calls || []), ...(message.tool_calls || [])]) {
+            const toolDeltas = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+            const toolMessages = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+            for (const call of [...toolDeltas, ...toolMessages]) {
               const key = call?.index ?? call?.id ?? `tool-${streamToolCalls.size}`;
               const previous = streamToolCalls.get(key) || {};
               const oldArgs = previous?.function?.arguments || '';
