@@ -194,6 +194,20 @@ function publicProxyBase() {
 
 const OR_API = 'https://openrouter.ai/api/v1';
 
+// 只保留可公开展示的路由诊断响应头，避免把认证或服务端内部头返回给控制台。
+const ROUTING_HEADER_ALLOWLIST = new Set([
+  'x-litellm-call-id', 'x-litellm-model-id', 'x-litellm-model-api-base',
+  'x-litellm-response-cost', 'x-request-id', 'x-generation-id',
+]);
+function visibleResponseHeaders(headers) {
+  const out = {};
+  headers?.forEach?.((value, name) => {
+    const key = String(name).toLowerCase();
+    if (ROUTING_HEADER_ALLOWLIST.has(key)) out[key] = String(value).slice(0, 512);
+  });
+  return out;
+}
+
 async function fetchJSON(url, opts = {}, timeoutMs = 60000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -202,7 +216,7 @@ async function fetchJSON(url, opts = {}, timeoutMs = 60000) {
     const text = await res.text();
     let json = null;
     try { json = JSON.parse(text); } catch { json = { raw: text }; }
-    return { status: res.status, json };
+    return { status: res.status, json, headers: visibleResponseHeaders(res.headers) };
   } finally {
     clearTimeout(t);
   }
@@ -327,17 +341,82 @@ function slugify(s) { return String(s).toLowerCase().replace(/\s+/g, '-'); }
 function parseRouting(json) {
   const d = json?.data && json.data.choices ? json.data : json;
   const msg = d?.choices?.[0]?.message;
-  const rt = msg?.provider_metadata?.gateway?.routing || d?.provider_metadata?.gateway?.routing || {};
+  const rt = msg?.provider_metadata?.gateway?.routing
+    || d?.provider_metadata?.gateway?.routing
+    || msg?.providerMetadata?.gateway?.routing
+    || d?.providerMetadata?.gateway?.routing
+    || {};
   const direct = typeof d?.provider === 'string' ? d.provider : null;
+  const routerMeta = d?.openrouter_metadata || d?.openrouterMetadata || {};
+  const selected = Array.isArray(routerMeta?.endpoints?.available)
+    ? routerMeta.endpoints.available.find((item) => item?.selected && typeof item.provider === 'string')
+    : null;
+  const providerName = rt.finalProvider || direct || selected?.provider || null;
   return {
     content: msg?.content ?? null,
     usage: d?.usage || null,
-    pipeline: rt.finalProvider ? 'planner' : direct ? 'direct' : null,
-    canonicalSlug: rt.canonicalSlug || (typeof d?.model === 'string' && d.model.includes('/') ? d.model : null),
-    finalProvider: rt.finalProvider || (direct ? slugify(direct) : null),
-    finalProviderName: rt.finalProvider || direct,
+    pipeline: rt.finalProvider ? 'planner' : providerName ? 'direct' : null,
+    canonicalSlug: rt.canonicalSlug || selected?.model || (typeof d?.model === 'string' && d.model.includes('/') ? d.model : null),
+    finalProvider: providerName ? slugify(providerName) : null,
+    finalProviderName: providerName,
     fallbacks: rt.fallbacksAvailable || [],
     plan: rt.planningReasoning || '',
+  };
+}
+
+// 把不同网关的可见路由信息统一为稳定的诊断 JSON。
+// 证据优先级：明确的最终供应商 > 公开路由元数据 > 候选列表/错误反馈 > 响应头线索。
+function buildUpstreamEvidence(json, headers = {}, fallbackRouting = {}, extra = {}) {
+  const d = json?.data && json.data.choices ? json.data : (json || {});
+  const msg = d?.choices?.[0]?.message;
+  const routing = parseRouting(d);
+  const rt = msg?.provider_metadata?.gateway?.routing
+    || d?.provider_metadata?.gateway?.routing
+    || msg?.providerMetadata?.gateway?.routing
+    || d?.providerMetadata?.gateway?.routing
+    || {};
+  const routerMeta = d?.openrouter_metadata || d?.openrouterMetadata || {};
+  const selected = Array.isArray(routerMeta?.endpoints?.available)
+    ? routerMeta.endpoints.available.filter((item) => item?.selected)
+    : [];
+  const vercelAttempts = (rt.modelAttempts || []).flatMap((modelAttempt) => modelAttempt?.providerAttempts || []);
+  const openRouterAttempts = Array.isArray(routerMeta?.attempts) ? routerMeta.attempts : [];
+  const attempts = [...vercelAttempts, ...openRouterAttempts].map((item) => ({
+    provider: item?.provider ? slugify(item.provider) : null,
+    model: item?.providerApiModelId || item?.model || null,
+    status: item?.status ?? (item?.success === true ? 200 : item?.success === false ? 'failed' : null),
+    success: item?.success ?? (item?.status ? Number(item.status) < 400 : null),
+  })).filter((item) => item.provider || item.model || item.status !== null);
+  const providers = [
+    routing.finalProvider, fallbackRouting?.finalProvider,
+    ...routing.fallbacks, ...(fallbackRouting?.fallbacks || []),
+    ...selected.map((item) => item?.provider),
+    ...attempts.map((item) => item.provider),
+    ...(extra.candidates || []),
+  ].filter((item) => typeof item === 'string' && item).map(slugify);
+  const candidates = [...new Set(providers)];
+  const actual = routing.finalProvider || fallbackRouting?.finalProvider || null;
+  const source = rt.finalProvider ? 'gateway.routing.finalProvider'
+    : d?.provider ? 'response.provider'
+    : selected.length ? 'openrouter_metadata.endpoints'
+    : null;
+  const exposedHeaders = Object.fromEntries(Object.entries(headers || {})
+    .filter(([key]) => ROUTING_HEADER_ALLOWLIST.has(String(key).toLowerCase())));
+  return {
+    schema: 'cline-pass/upstream-evidence-v1',
+    observedAt: new Date().toISOString(),
+    confidence: actual ? 'confirmed' : candidates.length ? 'candidate' : 'unknown',
+    actual: actual ? { provider: slugify(actual), source } : null,
+    routing: {
+      pipeline: routing.pipeline || fallbackRouting?.pipeline || null,
+      canonicalSlug: routing.canonicalSlug || fallbackRouting?.canonicalSlug || null,
+      resolvedProvider: rt.resolvedProvider ? slugify(rt.resolvedProvider) : null,
+      fallbacks: [...new Set([...(routing.fallbacks || []), ...(fallbackRouting?.fallbacks || [])])].map(slugify),
+    },
+    candidates,
+    attempts,
+    responseHeaders: exposedHeaders,
+    notes: actual ? [] : ['网关未在本次响应中明确暴露最终供应商；候选项不等同于实际命中。'],
   };
 }
 
@@ -364,7 +443,7 @@ async function probeModel(modelId) {
   const acc = pickAccount();
   const t0 = Date.now();
   const body = { model: modelId, messages: [{ role: 'user', content: 'Reply with the word OK' }], max_tokens: 256 };
-  const { json } = await fetchJSON(`${config.upstreamBase}/chat/completions`, {
+  const { json, headers } = await fetchJSON(`${config.upstreamBase}/chat/completions`, {
     method: 'POST',
     headers: chatHeaders(acc.key),
     body: JSON.stringify(body),
@@ -392,6 +471,7 @@ async function probeModel(modelId) {
     ? [...new Set([...(harvest || []), ...r.fallbacks, ...Object.keys(detail), ...(prev.watchedUpstreams || [])])]
     : [...new Set([...r.fallbacks, ...(harvest || []), ...Object.keys(detail), ...(prev.watchedUpstreams || [])])];
   const tier0 = [...new Set([...(prev.tier0 || []), ...parseTier0(r.plan)])];
+  const routeEvidence = buildUpstreamEvidence(json, headers, r, { candidates: [...upstreams, ...(harvest || [])] });
   META.models[modelId] = {
     ...prev,
     ok: true,
@@ -403,6 +483,7 @@ async function probeModel(modelId) {
     upstreamDetail: detail,
     upstreams,
     tier0,
+    routeEvidence,
     lastProvider: r.finalProvider || prev.lastProvider,
     lastMs: ms,
     probedAt: Date.now(),
@@ -691,9 +772,10 @@ async function attemptOnce(modelId, body, attempt, signal) {
       method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(send), signal,
     });
     const json = await res.json().catch(() => null);
-    if (!json) return { status: 502, out: { error: { message: 'upstream returned non-JSON', type: 'upstream_error' } }, routing: {}, netError: 'non-JSON response', acc };
+    const headers = visibleResponseHeaders(res.headers);
+    if (!json) return { status: 502, out: { error: { message: 'upstream returned non-JSON', type: 'upstream_error' } }, routing: {}, headers, netError: 'non-JSON response', acc };
     const { status, body: out, routing } = unwrap(json);
-    return { status, out, routing, netError: null, acc };
+    return { status, out, routing, headers, netError: null, acc };
   } catch (e) {
     return { status: 502, out: { error: { message: `upstream fetch failed: ${e.message}`, type: 'upstream_error' } }, routing: {}, netError: e.message, acc };
   }
@@ -1071,6 +1153,7 @@ async function speedTest(model, upstream, signal) {
     method: 'POST', headers: chatHeaders(acc.key), body: JSON.stringify(body), signal,
   });
   if (!response.ok) throw new Error(`上游 HTTP ${response.status}：${(await response.text()).slice(0, 500)}`);
+  const responseHeaders = visibleResponseHeaders(response.headers);
   const measured = await measureStream(response, startedAt);
   const actual = measured.finalProvider || null;
   let detail = null;
@@ -1089,9 +1172,10 @@ async function speedTest(model, upstream, signal) {
     } catch (e) { if (signal?.aborted) throw e; /* 公共指标不可用时只展示本次实测 */ }
   }
   const matched = actual ? norm(actual) === norm(upstream) || (detail && norm(detail.slug) === norm(upstream)) : null;
-  if (!matched) return { ok: false, error: actual ? `网关实际使用 ${actual}，与指定供应商 ${upstream} 不符，本次测速无效` : '响应未确认实际供应商，本次测速无效' };
+  const evidence = buildUpstreamEvidence(null, responseHeaders, measured, { candidates: [upstream, actual].filter(Boolean) });
+  if (!matched) return { ok: false, error: actual ? `网关实际使用 ${actual}，与指定供应商 ${upstream} 不符，本次测速无效` : '响应未确认实际供应商，本次测速无效', evidence };
   return { ok: true, model, upstream, actual, matched: matched === null ? null : !!matched,
-    ...measured, detail, testedAt: Date.now() };
+    ...measured, detail, evidence, testedAt: Date.now() };
 }
 
 function rememberSpeedTest(model, upstream, result) {
@@ -1159,6 +1243,18 @@ const server = http.createServer(async (req, res) => {
       const sub = config.knownModels.map((id) => ({ id, config: config.perModel[id] || {}, meta: META.models[id] || null }));
       return sendJSON(res, 200, { subscription: sub, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null });
     }
+    if (req.method === 'GET' && p === '/api/route-evidence') {
+      const model = url.searchParams.get('model');
+      if (!model) return sendJSON(res, 400, { ok: false, error: 'model query parameter is required' });
+      const evidence = META.models[model]?.routeEvidence || null;
+      return sendJSON(res, evidence ? 200 : 404, {
+        ok: !!evidence,
+        schema: 'cline-pass/upstream-evidence-v1',
+        model,
+        evidence,
+        error: evidence ? undefined : '该模型尚无路由探测记录，请先调用 /api/probe',
+      });
+    }
     if (req.method === 'POST' && p === '/api/probe') {
       const { model } = await JSON.parse(await readBody(req).then((b) => b.toString()));
       if (!model) return sendJSON(res, 400, { error: 'model required' });
@@ -1205,20 +1301,22 @@ const server = http.createServer(async (req, res) => {
       if (chain.status !== 200) {
         const providers = errorProviders(chain.out?.error);
         for (const t of trace) providers.push(...errorProviders(t.note));
+        const evidence = buildUpstreamEvidence(chain.out, chain.headers, chain.routing, { candidates: providers });
         return sendJSON(res, 200, {
           ok: false, error: errText(chain.out?.error?.message || chain.out?.error || 'upstream error').slice(0, 12000),
           errorProviders: [...new Set(providers)],
-          targets: (cfg.upstreams || []).filter(Boolean), exclude: cfg.exclude || [], trace,
+          targets: (cfg.upstreams || []).filter(Boolean), exclude: cfg.exclude || [], trace, evidence,
         });
       }
       const r = parseRouting(chain.out);
+      const evidence = buildUpstreamEvidence(chain.out, chain.headers, r, { candidates: (cfg.upstreams || []).filter(Boolean) });
       record(model, { provider: r.finalProvider, canonical: r.canonicalSlug, ms: Date.now() - t0, stream: false, attempts: trace.map((t) => t.upstream || 'auto'), error: null, account: chain.acc?.name || null });
       return sendJSON(res, 200, {
         ok: true, ms: Date.now() - t0,
         targets: (cfg.upstreams || []).filter(Boolean), exclude: cfg.exclude || [],
         actual: r.finalProvider, actualName: r.finalProviderName, pipeline: r.pipeline, pinnable: r.pipeline !== null,
         canonicalSlug: r.canonicalSlug, fallbacks: r.fallbacks, content: (r.content || '').slice(0, 120),
-        account: chain.acc?.name || null, trace,
+        account: chain.acc?.name || null, trace, evidence,
       });
     }
     if (req.method === 'POST' && (p === '/api/watch-upstream' || p === '/api/delete-upstream')) {
