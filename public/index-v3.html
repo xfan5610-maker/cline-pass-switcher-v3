@@ -1231,6 +1231,23 @@ async function abortStream(id){
   catch(e){toast(errMsg(e),'bad')}
 }
 
+function historyOutput(h){
+  const r=h.exchange?.response;if(!r)return '';
+  if(r.stream)return String(r.content||r.reasoning||'');
+  const d=r.data&&r.data.choices?r.data:r;
+  const msg=d?.choices?.[0]?.message||{};
+  return typeof msg.content==='string'?msg.content:'';
+}
+function historyFailure(h){
+  const f=h.exchange?.failure;
+  if(!f)return h.error||'';
+  const e=f.error?.message||f.error||f.message||h.error||'';
+  return typeof e==='string'?e:JSON.stringify(e);
+}
+function shortHistoryText(v,limit=260){
+  v=String(v||'').replace(/\\s+/g,' ').trim();
+  return v.length>limit?v.slice(0,limit)+'…':v;
+}
 function renderHistory(){
   const q=$('#historySearch').value.trim().toLowerCase(), f=$('#historyFilter').value;
   let rows=HISTORY.filter(h=>{
