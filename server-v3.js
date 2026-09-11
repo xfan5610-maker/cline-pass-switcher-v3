@@ -595,6 +595,26 @@ async function fetchOfficialModels() {
   return { sources, found: valid.length, added, knownModels: config.knownModels, ...META.officialModelsFetch };
 }
 
+// 请求历史保存可展示对话数据；认证字段始终脱敏，过长单段会标记截断。
+const HISTORY_VALUE_LIMIT = Math.max(32768, Number(process.env.HISTORY_VALUE_LIMIT) || 2 * 1024 * 1024);
+function historySafe(value, depth = 0) {
+  if (depth > 16) return '[max depth]';
+  if (typeof value === 'string') {
+    if (value.length <= HISTORY_VALUE_LIMIT) return value;
+    const edge = Math.floor(HISTORY_VALUE_LIMIT / 2);
+    return { truncated: true, originalLength: value.length, preview: value.slice(0, edge) + '\n…[内容过长，已截断]…\n' + value.slice(-edge) };
+  }
+  if (Array.isArray(value)) return value.map((item) => historySafe(item, depth + 1));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key, /(^|[-_])(authorization|api[-_]?key|token|password|secret)([-_]|$)/i.test(key)
+      ? '[redacted]' : historySafe(item, depth + 1),
+  ]));
+}
+function historyExchange(request, response, failure = null) {
+  return historySafe({ schema: 'cline-pass/request-history-v1', request, response: response || null, failure: failure || null });
+}
+
 function record(modelId, info) {
   META.models[modelId] = { ...(META.models[modelId] || {}), ...info };
   META.history.unshift({ ts: Date.now(), model: modelId, ...info });
