@@ -741,12 +741,18 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let rejected = false;
     req.on('data', (c) => {
+      if (rejected) return;
       size += c.length;
-      if (size > 50 * 1024 * 1024) { reject(new Error('body too large')); req.destroy(); return; }
+      if (size > 50 * 1024 * 1024) {
+        rejected = true;
+        reject(new Error('body too large (max 50 MB)'));
+        return;
+      }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('end', () => { if (!rejected) resolve(Buffer.concat(chunks)); });
     req.on('error', reject);
   });
 }
@@ -1039,14 +1045,15 @@ async function handleChat(req, res) {
     let streamReasoning = '';
     let streamUsage = null;
     let streamFinishReason = null;
+    const streamToolCalls = new Map();
     let sseBuffer = '';
     const sseDecoder = new TextDecoder();
     const captureSSE = (chunk, flush = false) => {
       sseBuffer += sseDecoder.decode(chunk || new Uint8Array(), { stream: !flush });
-      let split;
-      while ((split = sseBuffer.indexOf('\n\n')) >= 0) {
-        const event = sseBuffer.slice(0, split);
-        sseBuffer = sseBuffer.slice(split + 2);
+      let boundary;
+      while ((boundary = /\r?\n\r?\n/.exec(sseBuffer))) {
+        const event = sseBuffer.slice(0, boundary.index);
+        sseBuffer = sseBuffer.slice(boundary.index + boundary[0].length);
         const data = event.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n');
         if (!data || data === '[DONE]') continue;
         try {
@@ -1060,6 +1067,16 @@ async function handleChat(req, res) {
             const reasoning = delta.reasoning_content ?? delta.reasoning ?? message.reasoning_content ?? message.reasoning;
             if (typeof content === 'string') streamText += content;
             if (typeof reasoning === 'string') streamReasoning += reasoning;
+            for (const call of [...(delta.tool_calls || []), ...(message.tool_calls || [])]) {
+              const key = call?.index ?? call?.id ?? `tool-${streamToolCalls.size}`;
+              const previous = streamToolCalls.get(key) || {};
+              const oldArgs = previous?.function?.arguments || '';
+              const newArgs = call?.function?.arguments || '';
+              streamToolCalls.set(key, {
+                ...previous, ...call,
+                function: { ...(previous.function || {}), ...(call.function || {}), arguments: String(oldArgs) + String(newArgs) },
+              });
+            }
             if (choice?.finish_reason != null) streamFinishReason = choice.finish_reason;
           }
         } catch { /* 非 JSON SSE 数据仍原样透传给客户端 */ }
@@ -1126,7 +1143,7 @@ async function handleChat(req, res) {
         trace: chain.trace, routeEvidence,
         exchange: historyExchange(requestHistory, {
           stream: true, content: streamText, reasoning: streamReasoning || null,
-          usage: streamUsage, finishReason: streamFinishReason,
+          toolCalls: [...streamToolCalls.values()], usage: streamUsage, finishReason: streamFinishReason,
         }),
       });
       recorded = true;
@@ -1149,7 +1166,7 @@ async function handleChat(req, res) {
           trace: chain.trace, routeEvidence,
           exchange: historyExchange(requestHistory, {
             stream: true, content: streamText, reasoning: streamReasoning || null,
-            usage: streamUsage, finishReason: streamFinishReason,
+            toolCalls: [...streamToolCalls.values()], usage: streamUsage, finishReason: streamFinishReason,
           }, { message, type: stalled ? 'stream_idle_timeout' : 'stream_error', trace: chain.trace }),
         });
         recorded = true;
