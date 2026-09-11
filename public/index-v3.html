@@ -429,6 +429,10 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             <button class="btn primary" id="providerRouteTestBtn">测试当前路由</button>
             <button class="btn provider-action-final" id="providerValidateBtn">校验全部上游</button>
           </div>
+          <div class="toolbar" style="margin:0">
+            <input class="field" id="strictUpstreamInput" type="text" placeholder="输入上游 slug，先严格测试（不保存）">
+            <button class="btn" id="strictUpstreamTestBtn">严格测试上游</button>
+          </div>
         </div>
         <div id="routeTestResult" class="inline-result route-test-result hidden"></div>
         <div class="provider-layout">
@@ -495,6 +499,14 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
                   <button class="btn" id="speedNoneBtn">清空</button>
                   <button class="btn primary" id="speedRunBtn">开始测速</button>
                   <button class="btn danger hidden" id="speedCancelBtn">停止测速</button>
+                  <select class="field" id="speedSort" aria-label="测速结果排序">
+                    <option value="generation">按生成速度</option>
+                    <option value="firstPacket">按首包延迟</option>
+                    <option value="inputPrice">按输入价格</option>
+                    <option value="outputPrice">按输出价格</option>
+                    <option value="uptimeShort">按短期可用率</option>
+                    <option value="uptimeDay">按近一天可用率</option>
+                  </select>
                 </div>
                 <div class="speed-picks" id="speedPicks"></div>
                 <div id="speedProgressWrap" class="hidden">
@@ -635,6 +647,7 @@ let AUTH_KEY = localStorage.getItem('cps_key') || '';
 let META = null, DATA = null, ACC = null, SECURITY = null, HISTORY = [], RUNTIME = null;
 let currentRoute = 'dashboard', providerModelId = localStorage.getItem('cps_provider_model') || '', historyLimit = 25;
 let dashboardModelId = localStorage.getItem('cps_dashboard_model') || '', requestView = 'live', providerFilter = 'all';
+let speedSort = localStorage.getItem('cps_speed_sort') || 'generation';
 let MODEL_RESULTS = new Map(), VALIDATION_RESULTS = new Map(), PROVIDER_TEST_RESULTS = new Map(), SPEED_RESULTS = new Map(), SPEED_SELECTIONS = new Map();
 const HISTORY_DETAILS = new Map(), HISTORY_OPEN = new Set();
 const SPEED_SELECTION_TOUCHED = new Set();
@@ -948,6 +961,7 @@ function renderProviders(){
     : '尚未探测路由';
   $('#routeMode').value=cfg.pinMode==='preferred'?'preferred':'strict';
   $('#routeSort').value=cfg.sort||'';
+  $('#speedSort').value=['generation','firstPacket','inputPrice','outputPrice','uptimeShort','uptimeDay'].includes(speedSort)?speedSort:'generation';
   const counts={ok:0,limited:0,bad:0,auth:0,unknown:0};
   for(const u of all){const st=upstreamState(meta,u,providerModelId);counts[st]=(counts[st]||0)+1}
   $('#providerSummary').textContent=`${all.length} 个 · 可用 ${counts.ok||0} · 限流 ${counts.limited||0} · 不可用 ${(counts.bad||0)+(counts.auth||0)}${meta.validatedAt?` · ${fmtDateTime(meta.validatedAt)}`:''}`;
@@ -1056,6 +1070,24 @@ async function testProvider(u,btn){
     toast(errMsg(e),'bad',5000);
   }finally{if(btn){btn.disabled=false;btn.textContent=old}renderProviders()}
 }
+async function testStrictUpstream(btn){
+  const upstream=$('#strictUpstreamInput').value.trim().toLowerCase();
+  if(!upstream)return toast('请先输入上游 slug','warn');
+  const old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='测试中…'}
+  const box=$('#routeTestResult');box.classList.remove('hidden','good','bad','warn');
+  box.textContent=`正在严格测试 ${upstream}；本次测试不会保存或改变路由配置…`;
+  try{
+    const r=await api('/api/test',{model:providerModelId,upstream,exclude:[],pinMode:'strict'});
+    const matched=!!r.ok&&providerMatch(upstream,r.actual);
+    box.classList.add(matched?'good':r.ok?'warn':'bad');
+    box.textContent=r.ok
+      ? (matched
+        ? `严格测试成功 · 已命中 ${upstream} · 网关返回 ${r.actual||'unknown'} · ${fmtDur(r.ms)} · 未保存配置`
+        : `请求成功但未命中指定上游 · 目标 ${upstream} · 网关返回 ${r.actual||'unknown'} · ${fmtDur(r.ms)} · 未保存配置`)
+      : `严格测试失败 · ${r.error||'未知错误'}`;
+  }catch(e){box.classList.add('bad');box.textContent=`严格测试失败 · ${errMsg(e)}`}
+  finally{if(btn){btn.disabled=false;btn.textContent=old}}
+}
 async function testCurrentRoute(btn){
   const old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='测试中…'}
   const box=$('#routeTestResult');box.classList.remove('hidden','good','bad');
@@ -1079,8 +1111,28 @@ function renderSpeedPicks(){
   for(const u of [...selected])if(!ups.includes(u))selected.delete(u);
   $('#speedPicks').innerHTML=ups.map(u=>`<label class="pick"><input type="checkbox" value="${esc(u)}" ${selected.has(u)?'checked':''}><span>${esc(u)}</span></label>`).join('')||`<div class="empty">还没有发现上游<br><button class="btn" data-model-action="probe" data-model="${esc(id)}" style="margin-top:10px">立即探测此模型</button></div>`;
 }
+function speedMetric(r, key){
+  const detail=r?.detail||{};
+  if(key==='generation')return Number(r?.generationSpeed);
+  if(key==='firstPacket')return Number(r?.firstPacketMs);
+  if(key==='inputPrice')return Number(detail.input);
+  if(key==='outputPrice')return Number(detail.output);
+  if(key==='uptimeShort'||key==='uptimeDay'){
+    const values=(detail.offers||[]).map(o=>Number(o?.[key])).filter(Number.isFinite);
+    return values.length?Math.max(...values):NaN;
+  }
+  return NaN;
+}
 function renderSpeedResults(results=[]){
-  const sorted=[...results].sort((a,b)=>(Number(b.generationSpeed)||-1)-(Number(a.generationSpeed)||-1));
+  const key=speedSort;
+  const ascending=['firstPacket','inputPrice','outputPrice'].includes(key);
+  const sorted=[...results].sort((a,b)=>{
+    if(!!a.ok!==!!b.ok)return a.ok?-1:1;
+    const av=speedMetric(a,key),bv=speedMetric(b,key),aMissing=!Number.isFinite(av),bMissing=!Number.isFinite(bv);
+    if(aMissing!==bMissing)return aMissing?1:-1;
+    if(aMissing)return String(a.upstream||'').localeCompare(String(b.upstream||''));
+    return ascending?av-bv:bv-av;
+  });
   $('#speedResults').innerHTML=sorted.map((r,i)=>{
     if(!r.ok)return `<div class="speed-card"><div class="speed-rank">#${i+1}</div><div class="speed-title">${esc(r.upstream)}</div><div class="bad" style="font-size:11px;margin-top:8px">${esc(r.error||'测速失败')}</div></div>`;
     const d=r.detail||{};
@@ -1390,6 +1442,9 @@ $('#routeMode').addEventListener('change',async e=>{const s=modelById(providerMo
 $('#routeSort').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.sort=e.target.value||null;try{await saveModelCfg(providerModelId,c);toast('排序策略已保存')}catch(err){toast(errMsg(err),'bad')}});
 $('#providerProbeBtn').addEventListener('click',async e=>{await modelAction('probe',providerModelId,e.currentTarget);DATA=await api('/api/models');renderProviders()});
 $('#providerRouteTestBtn').addEventListener('click',e=>testCurrentRoute(e.currentTarget));
+$('#strictUpstreamTestBtn').addEventListener('click',e=>testStrictUpstream(e.currentTarget));
+$('#strictUpstreamInput').addEventListener('keydown',e=>{if(e.key==='Enter')testStrictUpstream($('#strictUpstreamTestBtn'))});
+$('#speedSort').addEventListener('change',e=>{speedSort=e.target.value;localStorage.setItem('cps_speed_sort',speedSort);renderSpeedResults(SPEED_RESULTS.get(providerModelId)||[])});
 $('#providerValidateBtn').addEventListener('click',async e=>{await modelAction('validate',providerModelId,e.currentTarget);DATA=await api('/api/models');renderProviders()});
 $('#addProviderBtn').addEventListener('click',async()=>{
   const u=$('#customProvider').value.trim();if(!u)return;
