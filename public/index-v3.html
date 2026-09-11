@@ -1403,7 +1403,8 @@ async function autoRefresh(force=false){
   const now=Date.now(),active=(RUNTIME?.activeStreams||[]).length>0;
   const onDashboard=currentRoute==='dashboard',onRequests=currentRoute==='requests';
   const needRuntime=force||(onDashboard&&now-lastRuntimeFetch>=5000)||(onRequests&&requestView==='live'&&now-lastRuntimeFetch>=(active?2000:10000));
-  const needHistory=force||(onDashboard&&now-lastHistoryFetch>=5000)||(onRequests&&now-lastHistoryFetch>=10000);
+  // 历史记录只在初次加载、手动刷新或页面重新可见时拉取，避免阅读展开内容时被重绘收起。
+  const needHistory=force||(onDashboard&&now-lastHistoryFetch>=5000);
   if(!needRuntime&&!needHistory)return;
   autoRefreshBusy=true;
   try{
