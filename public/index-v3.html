@@ -549,6 +549,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             <select class="field" id="historyFilter" style="min-width:150px">
               <option value="all">全部</option><option value="ok">仅成功</option><option value="error">仅异常</option>
             </select>
+            <button class="btn danger small" id="historyClearBtn">清空历史</button>
           </div>
           <div class="list" id="historyList"></div>
           <button class="btn hidden" id="historyMoreBtn" style="margin-top:12px;width:100%">显示更多</button>
@@ -635,6 +636,7 @@ let META = null, DATA = null, ACC = null, SECURITY = null, HISTORY = [], RUNTIME
 let currentRoute = 'dashboard', providerModelId = localStorage.getItem('cps_provider_model') || '', historyLimit = 25;
 let dashboardModelId = localStorage.getItem('cps_dashboard_model') || '', requestView = 'live', providerFilter = 'all';
 let MODEL_RESULTS = new Map(), VALIDATION_RESULTS = new Map(), PROVIDER_TEST_RESULTS = new Map(), SPEED_RESULTS = new Map(), SPEED_SELECTIONS = new Map();
+const HISTORY_DETAILS = new Map(), HISTORY_OPEN = new Set();
 const SPEED_SELECTION_TOUCHED = new Set();
 let speedAbort = null, speedRunning = false, requestUpdatedAt = 0, lastRuntimeFetch = 0, lastHistoryFetch = 0, autoRefreshBusy = false;
 const ROUTE_SCROLL = new Map();
@@ -1231,22 +1233,31 @@ async function abortStream(id){
   catch(e){toast(errMsg(e),'bad')}
 }
 
-function historyOutput(h){
-  const r=h.exchange?.response;if(!r)return '';
-  if(r.stream)return String(r.content||r.reasoning||'');
-  const d=r.data&&r.data.choices?r.data:r;
-  const msg=d?.choices?.[0]?.message||{};
-  return typeof msg.content==='string'?msg.content:'';
-}
-function historyFailure(h){
-  const f=h.exchange?.failure;
-  if(!f)return h.error||'';
-  const e=f.error?.message||f.error||f.message||h.error||'';
-  return typeof e==='string'?e:JSON.stringify(e);
-}
+function historyOutput(h){ return String(h.outputPreview||''); }
+function historyFailure(h){ return String(h.failurePreview||h.error||''); }
 function shortHistoryText(v,limit=260){
   v=String(v||'').replace(/\\s+/g,' ').trim();
   return v.length>limit?v.slice(0,limit)+'…':v;
+}
+async function loadHistoryDetail(id, btn){
+  if(!id)return;
+  if(HISTORY_DETAILS.has(id)){HISTORY_OPEN.add(id);renderHistory();return;}
+  const old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='加载中…'}
+  const top=scrollY;
+  try{
+    const detail=await api('/api/history-detail?id='+encodeURIComponent(id));
+    HISTORY_DETAILS.set(id,detail);HISTORY_OPEN.add(id);renderHistory();
+    requestAnimationFrame(()=>scrollTo({top,behavior:'auto'}));
+  }catch(e){toast(errMsg(e),'bad')}
+  finally{if(btn){btn.disabled=false;btn.textContent=old}}
+}
+async function clearHistory(){
+  if(!confirm('确认清空全部 10 条请求历史及其完整 JSON？此操作不可恢复。'))return;
+  try{
+    await api('/api/history/clear',{});
+    HISTORY=[];HISTORY_DETAILS.clear();HISTORY_OPEN.clear();historyLimit=25;
+    requestUpdatedAt=Date.now();renderRequests();renderGlobalStatus();toast('请求历史已清空');
+  }catch(e){toast(errMsg(e),'bad')}
 }
 function renderHistory(){
   const q=$('#historySearch').value.trim().toLowerCase(), f=$('#historyFilter').value;
