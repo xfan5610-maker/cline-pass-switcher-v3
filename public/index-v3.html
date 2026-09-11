@@ -1269,9 +1269,10 @@ function renderHistory(){
         <div><b>背后模型：</b>${esc(h.canonical||'—')}</div>
         <div><b>尝试序列：</b>${esc((h.attempts||[]).join(' → ')||'auto')}</div>
         <div><b>时间：</b>${esc(fmtDateTime(h.ts))}</div>
-        ${h.error?`<div class="bad"><b>错误：</b>${esc(h.error)}</div>`:''}
+        ${historyOutput(h)?`<div><b>模型输出：</b>${esc(shortHistoryText(historyOutput(h)))}</div>`:''}
+        ${h.error?`<div class="bad"><b>失败原因：</b>${esc(shortHistoryText(historyFailure(h),400))}</div>`:''}
         ${h.trace?`<div><b>Trace：</b>${esc(JSON.stringify(h.trace))}</div>`:''}
-        ${h.exchange?`<details class="history-json"><summary>对话、输出与失败详情 JSON</summary><pre>${esc(JSON.stringify({exchange:h.exchange,routeEvidence:h.routeEvidence||null},null,2))}</pre></details>`:''}
+        ${h.exchange?`<details class="history-json"><summary>查看完整 JSON（点开后可长按复制）</summary><pre style="max-height:52vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word">${esc(JSON.stringify({exchange:h.exchange,routeEvidence:h.routeEvidence||null},null,2))}</pre></details>`:''}
       </div>
     </div>`).join('')||'<div class="empty">没有匹配的历史记录</div>';
   $('#historyMoreBtn').classList.toggle('hidden',shown.length>=rows.length);
