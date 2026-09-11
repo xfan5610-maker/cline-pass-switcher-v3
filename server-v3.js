@@ -59,7 +59,7 @@ function loadJson(file, fallback) {
   }
 }
 const config = { ...DEFAULT_CONFIG, ...loadJson(CONFIG_PATH, {}) };
-const META = loadJson(META_PATH, { models: {}, history: [], catalog: null, orModelsFetchedAt: 0, orModelList: null });
+const META = loadJson(META_PATH, { models: {}, history: [], historyDetails: {}, historySeq: 0, catalog: null, orModelsFetchedAt: 0, orModelList: null });
 // DeepSeek V4 Flash 的补充上游。
 const DEEPSEEK_FLASH_UPSTREAMS = [
   'open-inference', 'deepinfra', 'relace', 'sail-research', 'digitalocean',
@@ -109,6 +109,35 @@ for (const modelId of ['deepseek/deepseek-v4-flash', 'cline-pass/deepseek-v4-fla
 
 const saveConfig = () => fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 const saveMeta = () => fs.writeFileSync(META_PATH, JSON.stringify(META, null, 2));
+
+// 请求历史保留最近 10 条摘要；完整对话单独保存，只有点开某条历史时才返回给前端。
+const HISTORY_MAX = 10;
+META.historyDetails = META.historyDetails && typeof META.historyDetails === 'object' ? META.historyDetails : {};
+META.history = Array.isArray(META.history) ? META.history : [];
+META.historySeq = Number(META.historySeq) || 0;
+function nextHistoryId() {
+  META.historySeq = (META.historySeq + 1) % 1000000000;
+  return `h-${Date.now().toString(36)}-${META.historySeq.toString(36)}`;
+}
+function trimHistory() {
+  const dropped = META.history.splice(HISTORY_MAX);
+  for (const entry of dropped) if (entry?.id) delete META.historyDetails[entry.id];
+}
+function migrateHistoryStorage() {
+  let dirty = false;
+  for (const entry of META.history) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (!entry.id) { entry.id = nextHistoryId(); dirty = true; }
+    if (entry.exchange) {
+      META.historyDetails[entry.id] = { exchange: entry.exchange, routeEvidence: entry.routeEvidence || null };
+      delete entry.exchange;
+      dirty = true;
+    }
+  }
+  if (META.history.length > HISTORY_MAX) { trimHistory(); dirty = true; }
+  if (dirty) saveMeta();
+}
+migrateHistoryStorage();
 // 旧版单 apiKey 迁移为账号池
 if ((!Array.isArray(config.accounts) || config.accounts.length === 0) && config.apiKey) {
   config.accounts = [{ name: '默认账号', key: config.apiKey, enabled: true }];
@@ -614,11 +643,30 @@ function historySafe(value, depth = 0) {
 function historyExchange(request, response, failure = null) {
   return historySafe({ schema: 'cline-pass/request-history-v1', request, response: response || null, failure: failure || null });
 }
-
-function record(modelId, info) {
-  META.models[modelId] = { ...(META.models[modelId] || {}), ...info };
-  META.history.unshift({ ts: Date.now(), model: modelId, ...info });
-  if (META.history.length > 100) META.history.length = 100;
+function historyOutputPreview(exchange) {
+  const response = exchange?.response;
+  if (!response) return '';
+  const content = response.stream ? response.content : (response?.data?.choices ? response.data : response)?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content.slice(0, 600);
+  return content ? JSON.stringify(content).slice(0, 600) : '';
+}
+function historyFailurePreview(exchange, error) {
+  const failure = exchange?.failure;
+  const value = failure?.error?.message || failure?.error || failure?.message || error || '';
+  return typeof value === 'string' ? value.slice(0, 800) : JSON.stringify(value).slice(0, 800);
+}
+function record(modelId, info, saveModel = true) {
+  const { exchange = null, ...summaryInfo } = info;
+  const id = nextHistoryId();
+  if (saveModel) META.models[modelId] = { ...(META.models[modelId] || {}), ...summaryInfo };
+  const entry = {
+    id, ts: Date.now(), model: modelId, ...summaryInfo,
+    outputPreview: historyOutputPreview(exchange),
+    failurePreview: historyFailurePreview(exchange, summaryInfo.error),
+  };
+  if (exchange) META.historyDetails[id] = { exchange, routeEvidence: summaryInfo.routeEvidence || null };
+  META.history.unshift(entry);
+  trimHistory();
   if (info.account) {
     META.stats = META.stats || {};
     const st = (META.stats[info.account] ||= { requests: 0, lastUsed: 0, lastError: null });
