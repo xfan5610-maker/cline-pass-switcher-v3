@@ -31,6 +31,7 @@ const DEFAULT_CONFIG = {
     'cline-pass/glm-5.3-flash',
     'cline-pass/kimi-k3',
     'cline-pass/deepseek-v4-flash',
+    'cline-pass/deepseek-v4.1-flash',
     'cline-pass/qwen3.8-max',
     'cline-pass/minimax-m3',
     'cline-pass/glm-5.3',
@@ -603,23 +604,40 @@ async function validateUpstreams(modelId) {
   return results;
 }
 
-// 从官方文档与社区注册表拉取最新 ClinePass 订阅模型清单（只增不删）
+// 从官方接口、官方文档与社区注册表拉取最新 ClinePass 订阅模型清单（只增不删）。
 async function fetchOfficialModels() {
   const found = new Set();
   const sources = [];
+  const addModel = (value) => {
+    const id = typeof value === 'string' ? value : value?.id;
+    if (typeof id !== 'string') return;
+    const normalized = id.trim().toLowerCase();
+    if (normalized.startsWith('cline-pass/')) found.add(normalized);
+  };
+  // Cline 官方推荐模型接口：无需鉴权，更新最快。
+  try {
+    const { json } = await fetchJSON('https://api.cline.bot/api/v1/ai/cline/recommended-models', {}, 30000);
+    const list = json?.clinePass || json?.data?.clinePass;
+    if (Array.isArray(list) && list.length) {
+      list.forEach(addModel);
+      sources.push('cline.api');
+    }
+  } catch { /* 来源不可用则跳过 */ }
+  // models.dev 既可能使用 providers 包裹，也可能直接以 provider id 为顶层键。
   try {
     const { json } = await fetchJSON('https://models.dev/api.json', {}, 30000);
-    const cp = json?.providers?.['cline-pass'];
+    const cp = json?.providers?.['cline-pass'] || json?.['cline-pass'];
     if (cp?.models) {
-      Object.keys(cp.models).forEach((id) => found.add(id.startsWith('cline-pass/') ? id : `cline-pass/${id}`));
+      Object.keys(cp.models).forEach((id) => addModel(id.startsWith('cline-pass/') ? id : `cline-pass/${id}`));
       sources.push('models.dev');
     }
   } catch { /* 来源不可用则跳过 */ }
+  // 官方文档作为最后兜底。
   try {
     const res = await fetch('https://docs.cline.bot/getting-started/clinepass', { signal: AbortSignal.timeout(30000) });
     const text = await res.text();
     const ids = text.match(/cline-pass\/[a-z0-9._-]+/gi) || [];
-    if (ids.length) { ids.forEach((id) => found.add(id.toLowerCase())); sources.push('docs.cline.bot'); }
+    if (ids.length) { ids.forEach(addModel); sources.push('docs.cline.bot'); }
   } catch { /* 来源不可用则跳过 */ }
   const valid = [...found].filter((id) => /^cline-pass\/[a-z0-9._-]+$/.test(id));
   const added = valid.filter((id) => !config.knownModels.includes(id));
