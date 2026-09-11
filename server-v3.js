@@ -972,17 +972,39 @@ async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTi
 }
 
 async function handleChat(req, res) {
-  const raw = await readBody(req);
+  let raw;
+  try { raw = await readBody(req); }
+  catch (e) {
+    record('__invalid_request__', {
+      provider: null, canonical: null, ms: 0, stream: false, attempts: [], error: e.message || 'request body rejected',
+      exchange: historyExchange({ body: '[request body unavailable]' }, null, { status: 413, error: e.message || 'request body rejected' }),
+    }, false);
+    return sendJSON(res, 413, { error: { message: e.message || 'request body rejected', type: 'invalid_request_error' } });
+  }
   let body;
-  try { body = JSON.parse(raw.toString('utf8')); } catch { return sendJSON(res, 400, { error: { message: 'invalid JSON body' } }); }
+  try {
+    body = JSON.parse(raw.toString('utf8'));
+  } catch {
+    record('__invalid_request__', {
+      provider: null, canonical: null, ms: 0, stream: false, attempts: [], error: 'invalid JSON body',
+      exchange: historyExchange({ body: '[invalid JSON]' }, null, { status: 400, error: 'invalid JSON body' }),
+    }, false);
+    return sendJSON(res, 400, { error: { message: 'invalid JSON body' } });
+  }
+  const requestHistory = historySafe(body);
   const modelId = body.model;
-  if (!modelId) return sendJSON(res, 400, { error: { message: 'model is required' } });
+  if (!modelId) {
+    record('__invalid_request__', {
+      provider: null, canonical: null, ms: 0, stream: !!body.stream, attempts: [], error: 'model is required',
+      exchange: historyExchange(requestHistory, null, { status: 400, error: 'model is required' }),
+    }, false);
+    return sendJSON(res, 400, { error: { message: 'model is required' } });
+  }
 
   const cfg = config.perModel[modelId] || {};
   const targets = buildAttempts(modelId, cfg).map((a) => a.upstream).filter(Boolean);
   const isStream = !!body.stream;
 
-  const requestHistory = historySafe(body);
   const chain = await runChatChain(req, body, modelId, cfg, { stream: isStream });
 
   if (isStream && chain.streamUp) {
@@ -1153,7 +1175,15 @@ async function handleChat(req, res) {
   }
 
   const { status, out, routing, acc } = chain;
-  if (!out) return sendJSON(res, 502, { error: { message: 'no upstream response', type: 'upstream_error' } });
+  if (!out) {
+    record(modelId, {
+      provider: null, canonical: null, ms: Date.now() - chain.t0, stream: false,
+      attempts: chain.trace?.map((t) => t.upstream || 'auto') || [], trace: chain.trace || [],
+      error: 'no upstream response', account: acc?.name || null,
+      exchange: historyExchange(requestHistory, null, { status: 502, error: 'no upstream response', trace: chain.trace || [] }),
+    });
+    return sendJSON(res, 502, { error: { message: 'no upstream response', type: 'upstream_error' } });
+  }
   // 客户端实际使用成功的新订阅模型自动收录进列表
   if (status === 200 && /^cline-pass\//.test(String(modelId)) && !config.knownModels.includes(modelId)) {
     config.knownModels.push(modelId);
@@ -1541,6 +1571,19 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true, ...r });
     }
     if (req.method === 'GET' && p === '/api/history') return sendJSON(res, 200, { history: META.history });
+    if (req.method === 'GET' && p === '/api/history-detail') {
+      const id = String(url.searchParams.get('id') || '');
+      const detail = META.historyDetails?.[id];
+      return sendJSON(res, detail ? 200 : 404, detail
+        ? { ok: true, id, ...detail }
+        : { ok: false, error: '历史详情不存在或已被自动清理' });
+    }
+    if (req.method === 'POST' && p === '/api/history/clear') {
+      META.history = [];
+      META.historyDetails = {};
+      saveMeta();
+      return sendJSON(res, 200, { ok: true });
+    }
     if (req.method === 'GET' && p === '/api/config') return sendJSON(res, 200, { port: config.port, perModel: config.perModel, knownModels: config.knownModels });
     if (req.method === 'POST' && p === '/api/config') {
       const body = JSON.parse(await readBody(req).then((b) => b.toString()));
