@@ -1254,6 +1254,7 @@ function renderHistory(){
         <div><b>时间：</b>${esc(fmtDateTime(h.ts))}</div>
         ${h.error?`<div class="bad"><b>错误：</b>${esc(h.error)}</div>`:''}
         ${h.trace?`<div><b>Trace：</b>${esc(JSON.stringify(h.trace))}</div>`:''}
+        ${h.exchange?`<details class="history-json"><summary>对话、输出与失败详情 JSON</summary><pre>${esc(JSON.stringify({exchange:h.exchange,routeEvidence:h.routeEvidence||null},null,2))}</pre></details>`:''}
       </div>
     </div>`).join('')||'<div class="empty">没有匹配的历史记录</div>';
   $('#historyMoreBtn').classList.toggle('hidden',shown.length>=rows.length);
@@ -1325,6 +1326,7 @@ document.addEventListener('click',async e=>{
   const ad=e.target.closest('[data-account-delete]');if(ad){
     if(confirm('确认删除这个账号？')){ACC.accounts.splice(Number(ad.dataset.accountDelete),1);renderAccounts()}return
   }
+  if(e.target.closest('.history-json'))return;
   const hr=e.target.closest('.history-row');if(hr){hr.classList.toggle('open');return}
 });
 document.addEventListener('toggle',e=>{
