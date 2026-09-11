@@ -899,6 +899,7 @@ async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTi
             acc,
             trace,
             t0,
+            headers: visibleResponseHeaders(up.headers),
             streamAbort: () => ctrl.abort(),
             streamCleanup: () => req.off('close', onClientClose),
           };
@@ -933,6 +934,7 @@ async function handleChat(req, res) {
   const targets = buildAttempts(modelId, cfg).map((a) => a.upstream).filter(Boolean);
   const isStream = !!body.stream;
 
+  const requestHistory = historySafe(body);
   const chain = await runChatChain(req, body, modelId, cfg, { stream: isStream });
 
   if (isStream && chain.streamUp) {
@@ -963,6 +965,36 @@ async function handleChat(req, res) {
     let reader = null;
     let idleTimer = null;
     let tail = Buffer.alloc(0);
+    let streamText = '';
+    let streamReasoning = '';
+    let streamUsage = null;
+    let streamFinishReason = null;
+    let sseBuffer = '';
+    const sseDecoder = new TextDecoder();
+    const captureSSE = (chunk, flush = false) => {
+      sseBuffer += sseDecoder.decode(chunk || new Uint8Array(), { stream: !flush });
+      let split;
+      while ((split = sseBuffer.indexOf('\n\n')) >= 0) {
+        const event = sseBuffer.slice(0, split);
+        sseBuffer = sseBuffer.slice(split + 2);
+        const data = event.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n');
+        if (!data || data === '[DONE]') continue;
+        try {
+          const packet = JSON.parse(data);
+          const d = packet?.data && typeof packet.data === 'object' ? packet.data : packet;
+          if (d?.usage) streamUsage = d.usage;
+          for (const choice of d?.choices || []) {
+            const delta = choice?.delta || {};
+            const message = choice?.message || {};
+            const content = delta.content ?? message.content;
+            const reasoning = delta.reasoning_content ?? delta.reasoning ?? message.reasoning_content ?? message.reasoning;
+            if (typeof content === 'string') streamText += content;
+            if (typeof reasoning === 'string') streamReasoning += reasoning;
+            if (choice?.finish_reason != null) streamFinishReason = choice.finish_reason;
+          }
+        } catch { /* 非 JSON SSE 数据仍原样透传给客户端 */ }
+      }
+    };
     let finished = false;
     let recorded = false;
 
@@ -991,6 +1023,7 @@ async function handleChat(req, res) {
       state.bytes += chunk.length;
       state.state = 'STREAMING';
       tail = v3TailAppend(tail, chunk);
+      captureSSE(chunk);
       armIdle();
       if (!res.write(chunk)) {
         await new Promise((resolve) => res.once('drain', resolve));
@@ -1012,10 +1045,19 @@ async function handleChat(req, res) {
       if (state.state === 'ABORTING') throw new Error('aborted by admin');
       finished = true;
       state.state = 'DONE';
+      captureSSE(null, true);
       const { provider, canonical } = v3ParseTailRouting(tail);
+      const routeEvidence = buildUpstreamEvidence(null, chain.headers, {
+        finalProvider: provider, canonicalSlug: canonical, pipeline: provider ? 'stream' : null,
+      }, { candidates: targets });
       record(modelId, {
         provider, canonical, ms: Date.now() - t0, stream: true, error: null,
         account: acc.name, attempts: chain.trace.map((t) => t.upstream || 'auto'),
+        trace: chain.trace, routeEvidence,
+        exchange: historyExchange(requestHistory, {
+          stream: true, content: streamText, reasoning: streamReasoning || null,
+          usage: streamUsage, finishReason: streamFinishReason,
+        }),
       });
       recorded = true;
       if (!res.writableEnded) res.end();
@@ -1029,9 +1071,16 @@ async function handleChat(req, res) {
         : `上游流异常：${err?.message || String(err)}`;
 
       if (!recorded) {
+        captureSSE(null, true);
+        const routeEvidence = buildUpstreamEvidence(null, chain.headers, {}, { candidates: targets });
         record(modelId, {
           provider: null, canonical: null, ms: Date.now() - t0, stream: true, error: message,
           account: acc?.name || null, attempts: chain.trace.map((t) => t.upstream || 'auto'),
+          trace: chain.trace, routeEvidence,
+          exchange: historyExchange(requestHistory, {
+            stream: true, content: streamText, reasoning: streamReasoning || null,
+            usage: streamUsage, finishReason: streamFinishReason,
+          }, { message, type: stalled ? 'stream_idle_timeout' : 'stream_error', trace: chain.trace }),
         });
         recorded = true;
       }
