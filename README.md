@@ -1,11 +1,11 @@
 # Cline Pass 上游控制台（cline-pass-switcher）
 
-> 当前版本：**v1.5.2**
+> 当前版本：**v1.5.3**
 
 本仓库是基于 [liqiming-whu/cline-pass-switcher](https://github.com/liqiming-whu/cline-pass-switcher) 的移动端适配修改版；原项目源自 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher)。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.5.2-blue)
+![Version](https://img.shields.io/badge/version-1.5.3-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-green)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED)
 
@@ -18,6 +18,7 @@
 ## 主要功能
 
 - 🔍 **模型与上游探测**：识别模型所经过的路由管道、背后模型和可用上游。
+- 🔌 **Command Code 独立中转**：模型仍通过 `/v1/models` 提供给客户端，但不进入 Cline Pass 的上游下拉、探测、校验、测速或统计。
 - 🎯 **精确锚定上游**：支持严格锚定及“首选 + 回退”两种路由模式。
 - 🧬 **多上游故障转移**：首选上游失败、网络异常或超时时，按顺序尝试下一上游。
 - 🚫 **上游排除**：排除项不参与自动选择、精确锚定和回退。
