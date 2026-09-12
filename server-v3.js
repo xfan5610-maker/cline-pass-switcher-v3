@@ -117,7 +117,7 @@ for (const modelId of ['deepseek/deepseek-v4-flash', 'cline-pass/deepseek-v4-fla
 const saveConfig = () => fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 const saveMeta = () => fs.writeFileSync(META_PATH, JSON.stringify(META, null, 2));
 
-// 请求历史保留最近 10 条摘要；完整对话单独保存，只有点开某条历史时才返回给前端。
+// 请求历史保留最近 10 条摘要；输出详情与失败原因单独保存，不保存 messages、prompt 或工具定义原文。
 const HISTORY_MAX = 10;
 META.historyDetails = META.historyDetails && typeof META.historyDetails === 'object' ? META.historyDetails : {};
 META.history = Array.isArray(META.history) ? META.history : [];
