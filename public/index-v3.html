@@ -598,6 +598,34 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
           <div class="actions" style="margin-top:14px"><button class="btn primary" id="saveSecurityBtn">保存访问设置</button><button class="btn" id="showProxyKeyBtn">显示 / 隐藏密钥</button></div>
         </div>
         <div class="card">
+          <h2 class="card-title">Command Code 通道</h2>
+          <div class="card-sub">作为独立模型渠道中转，不探测其背后的推理厂商。只同步 Anthropic、DeepSeek、Google、Moonshot AI、OpenAI 和 Z AI。</div>
+          <div class="form-row">
+            <div class="form-label">启用通道<span class="form-help">启用并配置密钥后，允许名单内的模型会加入 /v1/models。</span></div>
+            <label class="checkline"><input type="checkbox" id="commandCodeEnabledInput"> 启用 Command Code</label>
+          </div>
+          <div class="form-row">
+            <div class="form-label">API Key<span class="form-help">与 Cline Pass 账号池完全独立，只用于 api.commandcode.ai。</span></div>
+            <input id="commandCodeKeyInput" type="password" placeholder="Command Code API Key">
+          </div>
+          <div class="form-row">
+            <div class="form-label">零数据保留<span class="form-help">发送 x-cmd-zdr: 1；没有 ZDR 上游的模型可能返回 422。</span></div>
+            <label class="checkline"><input type="checkbox" id="commandCodeZdrInput"> 强制 ZDR</label>
+          </div>
+          <div class="form-row">
+            <div class="form-label">渠道状态</div>
+            <div id="commandCodeStatus" class="muted" style="padding-top:10px">尚未配置</div>
+          </div>
+          <div class="actions" style="margin-top:14px">
+            <button class="btn primary" id="saveCommandCodeBtn">保存 Command Code</button>
+            <button class="btn" id="showCommandCodeKeyBtn">显示 / 隐藏密钥</button>
+            <button class="btn" id="refreshCommandCodeModelsBtn">同步允许模型</button>
+            <button class="btn" id="testCommandCodeBtn">测试密钥（小请求）</button>
+          </div>
+          <div class="card-sub" id="commandCodeModelCount" style="margin-top:14px">尚未同步模型</div>
+          <div class="catalog-list" id="commandCodeModelList" style="margin-top:10px;max-height:300px"></div>
+        </div>
+        <div class="card">
           <h2 class="card-title">稳定性层</h2>
           <div class="form-row"><div class="form-label">SSE 空闲保护</div><div id="idleTimeoutInfo" class="muted" style="padding-top:10px">—</div></div>
           <div class="form-row"><div class="form-label">累计卡流</div><div id="stalledInfo" class="muted" style="padding-top:10px">—</div></div>
@@ -638,7 +666,7 @@ const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString() : '—';
 const fmtDateTime = ts => ts ? new Date(ts).toLocaleString() : '—';
 const fmtDur = ms => !Number.isFinite(Number(ms)) ? '—' : ms < 1000 ? `${Math.round(ms)}ms` : ms < 60000 ? `${(ms/1000).toFixed(ms<10000?1:0)}s` : ms < 3600000 ? `${Math.round(ms/60000)}m` : `${(ms/3600000).toFixed(1)}h`;
 const fmtNum = (n,d=1) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—';
-const shortModel = id => String(id||'').replace(/^cline-pass\//,'');
+const shortModel = id => String(id||'').replace(/^cline-pass\//,'').replace(/^commandcode\//,'CC · ');
 const sortLabel = v => ({cost:'最低成本',ttft:'最快首包',tps:'最高吞吐'}[v] || '网关智能选择');
 const modeLabel = v => v === 'preferred' ? '优先 + 回退' : '严格钉住';
 const stateLabel = v => ({ok:'可用',limited:'限流',bad:'不可用',auth:'鉴权失败',unknown:'未知'}[v] || v || '未知');
@@ -1353,6 +1381,18 @@ function renderSettings(){
   $('#proxyKeyInput').value=SECURITY?.proxyKey||'';
   $('#publicBaseInput').value=SECURITY?.publicBaseUrl||'';
   $('#exposeCatalogInput').checked=!!SECURITY?.exposeCatalog;
+  const cc=SECURITY?.commandCode||{};
+  $('#commandCodeEnabledInput').checked=!!cc.enabled;
+  $('#commandCodeKeyInput').value=cc.apiKey||'';
+  $('#commandCodeZdrInput').checked=!!cc.zdr;
+  const models=DATA?.commandCode?.models||cc.models||[];
+  $('#commandCodeStatus').textContent=cc.enabled
+    ? (cc.configured?`已启用 · ${cc.zdr?'强制 ZDR':'普通模式'}`:'已启用但尚未填写 API Key')
+    : '通道已关闭';
+  $('#commandCodeModelCount').textContent=models.length
+    ? `允许模型 ${models.length} 个${(DATA?.commandCode?.modelsFetchedAt||cc.modelsFetchedAt)?' · 同步于 '+fmtDateTime(DATA?.commandCode?.modelsFetchedAt||cc.modelsFetchedAt):''}`
+    : '尚未同步允许名单模型';
+  $('#commandCodeModelList').innerHTML=models.map(id=>`<div class="catalog-item mono">${esc(id)}</div>`).join('')||'<div class="empty">保存密钥后点击“同步允许模型”</div>';
   renderSettingsRuntime();renderCatalog();
 }
 function renderCatalog(){
@@ -1361,13 +1401,34 @@ function renderCatalog(){
   const rows=cat.filter(x=>!q||String(x).toLowerCase().includes(q)).slice(0,400);
   $('#catalogList').innerHTML=rows.map(x=>`<div class="catalog-item mono">${esc(x)}</div>`).join('')||'<div class="empty">没有匹配模型</div>';
 }
-async function saveSecurity(){
+async function saveSecurity(btn){
+  const old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='保存中…'}
   try{
-    const r=await api('/api/security',{proxyKey:$('#proxyKeyInput').value.trim(),publicBaseUrl:$('#publicBaseInput').value.trim(),exposeCatalog:$('#exposeCatalogInput').checked});
+    const r=await api('/api/security',{
+      proxyKey:$('#proxyKeyInput').value.trim(),
+      publicBaseUrl:$('#publicBaseInput').value.trim(),
+      exposeCatalog:$('#exposeCatalogInput').checked,
+      commandCodeEnabled:$('#commandCodeEnabledInput').checked,
+      commandCodeApiKey:$('#commandCodeKeyInput').value.trim(),
+      commandCodeZdr:$('#commandCodeZdrInput').checked,
+    });
     SECURITY={...SECURITY,...r};AUTH_KEY=SECURITY.proxyKey||'';
     if(AUTH_KEY)localStorage.setItem('cps_key',AUTH_KEY);else localStorage.removeItem('cps_key');
-    DATA=await api('/api/models');renderAll();toast('访问设置已保存')
+    DATA=await api('/api/models');renderAll();toast('设置已保存')
   }catch(e){toast(errMsg(e),'bad')}
+  finally{if(btn){btn.disabled=false;btn.textContent=old}}
+}
+async function commandCodeAction(action,btn){
+  const old=btn.textContent;btn.disabled=true;btn.textContent=action==='refresh'?'同步中…':'测试中…';
+  try{
+    const path=action==='refresh'?'/api/commandcode/refresh-models':'/api/commandcode/test';
+    const r=await api(path,{});
+    if(r.commandCode)SECURITY={...SECURITY,commandCode:r.commandCode};
+    DATA=await api('/api/models');renderSettings();
+    if(action==='refresh')toast(`Command Code 已同步 ${DATA?.commandCode?.models?.length||0} 个允许模型`);
+    else toast(r.ok?`Command Code 可用 · ${shortModel(r.model)} · ${fmtDur(r.ms)}`:`测试失败：${r.error||'未知错误'}`,r.ok?'ok':'bad',5000);
+  }catch(e){toast(errMsg(e),'bad',5000)}
+  finally{btn.disabled=false;btn.textContent=old}
 }
 
 async function fetchOfficial(btn){
@@ -1465,7 +1526,11 @@ $('#historySearch').addEventListener('input',()=>{historyLimit=25;renderHistory(
 $('#historyFilter').addEventListener('change',()=>{historyLimit=25;renderHistory()});
 $('#historyMoreBtn').addEventListener('click',()=>{historyLimit+=25;renderHistory()});
 $('#catalogSearch').addEventListener('input',renderCatalog);
-$('#saveSecurityBtn').addEventListener('click',saveSecurity);
+$('#saveSecurityBtn').addEventListener('click',e=>saveSecurity(e.currentTarget));
+$('#saveCommandCodeBtn').addEventListener('click',e=>saveSecurity(e.currentTarget));
+$('#refreshCommandCodeModelsBtn').addEventListener('click',e=>commandCodeAction('refresh',e.currentTarget));
+$('#testCommandCodeBtn').addEventListener('click',e=>commandCodeAction('test',e.currentTarget));
+$('#showCommandCodeKeyBtn').addEventListener('click',()=>{$('#commandCodeKeyInput').type=$('#commandCodeKeyInput').type==='password'?'text':'password'});
 $('#showProxyKeyBtn').addEventListener('click',()=>{$('#proxyKeyInput').type=$('#proxyKeyInput').type==='password'?'text':'password'});
 $('#loginBtn').addEventListener('click',async()=>{
   AUTH_KEY=$('#loginKey').value.trim();$('#loginError').textContent='';
