@@ -746,7 +746,7 @@ let V3_STALLED_TOTAL = 0;
 function v3RuntimeSnapshot() {
   const now = Date.now();
   return {
-    version: 'v3-mobile-1.5.0',
+    version: 'v3-mobile-1.5.1',
     startedAt: V3_STARTED_AT,
     uptimeMs: now - V3_STARTED_AT,
     streamIdleTimeoutMs: V3_STREAM_IDLE_MS,
@@ -1078,6 +1078,7 @@ function commandCodeSettings() {
   };
 }
 async function refreshCommandCodeModels() {
+  const previous = new Set(commandCodeModels());
   const headers = config.commandCodeApiKey ? { Authorization: 'Bearer ' + config.commandCodeApiKey } : {};
   const result = await fetchJSON(config.commandCodeBase + '/models', { headers }, 30000);
   const status = result.status;
@@ -1091,7 +1092,13 @@ async function refreshCommandCodeModels() {
   META.commandCodeModels = [...new Set(raw)].sort((a, b) => a.localeCompare(b));
   META.commandCodeModelsFetchedAt = Date.now();
   saveMeta();
-  return commandCodeSettings();
+  const settings = commandCodeSettings();
+  settings.sync = {
+    added: settings.models.filter((id) => !previous.has(id)),
+    removed: [...previous].filter((id) => !settings.models.includes(id)),
+    total: settings.models.length,
+  };
+  return settings;
 }
 function openAIContentToAnthropic(content) {
   if (typeof content === 'string') return [{ type: 'text', text: content }];
@@ -1729,7 +1736,15 @@ const server = http.createServer(async (req, res) => {
       const cat = await catalog();
       const sub = config.knownModels.map((id) => ({ id, config: config.perModel[id] || {}, meta: META.models[id] || null }));
       const cc = commandCodeSettings();
-      return sendJSON(res, 200, { subscription: sub, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null,
+      const commandCodeActive = cc.enabled && cc.configured;
+      const availableModels = [
+        ...sub,
+        ...(commandCodeActive ? cc.models.map((id) => ({
+          id, channel: 'commandcode', config: {},
+          meta: { pipeline: 'commandcode', pinnable: false, upstreams: [], lastProvider: 'commandcode' },
+        })) : []),
+      ];
+      return sendJSON(res, 200, { subscription: sub, availableModels, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null,
         commandCode: { enabled: cc.enabled, configured: cc.configured, zdr: cc.zdr, allowedVendors: cc.allowedVendors, models: cc.models, modelsFetchedAt: cc.modelsFetchedAt } });
     }
     if (req.method === 'GET' && p === '/api/route-evidence') {
@@ -1912,6 +1927,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/validate-upstreams') {
       const { model } = JSON.parse(await readBody(req).then((b) => b.toString()));
       if (!model) return sendJSON(res, 400, { error: { message: 'model required' } });
+      if (commandCodeRawModel(model) !== null) return sendJSON(res, 400, { ok: false, error: 'Command Code 是独立中转渠道，不校验底层上游' });
       const results = await validateUpstreams(model);
       const summary = { ok: 0, limited: 0, bad: 0, auth: 0, unknown: 0 };
       for (const r of Object.values(results)) summary[r.status] = (summary[r.status] || 0) + 1;
