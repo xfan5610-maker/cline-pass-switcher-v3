@@ -188,14 +188,17 @@ echo "[5/7] 启动服务..."
 CURRENT_STEP="启动 PM2 服务"
 
 if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
-  echo "检测到已有 PM2 服务，重新绑定到当前安装目录..."
-  pm2 delete "$APP_NAME" >/dev/null
+  echo "检测到已有 PM2 服务，保留原有环境变量并重启..."
+  PORT="$PORT" \
+  BIND_HOST="$BIND_HOST" \
+  STREAM_IDLE_TIMEOUT_MS="$STREAM_IDLE_TIMEOUT_MS" \
+  pm2 restart "$APP_NAME" --update-env >/dev/null
+else
+  PORT="$PORT" \
+  BIND_HOST="$BIND_HOST" \
+  STREAM_IDLE_TIMEOUT_MS="$STREAM_IDLE_TIMEOUT_MS" \
+  pm2 start server-v3.js --name "$APP_NAME" --time
 fi
-
-PORT="$PORT" \
-BIND_HOST="$BIND_HOST" \
-STREAM_IDLE_TIMEOUT_MS="$STREAM_IDLE_TIMEOUT_MS" \
-pm2 start server-v3.js --name "$APP_NAME" --time
 
 sleep 2
 
