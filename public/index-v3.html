@@ -424,7 +424,6 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
           <span class="badge provider-channel-badge" id="providerChannelBadge">尚未探测路由</span>
           <div class="provider-action-grid">
             <button class="btn" id="providerFetchOfficialBtn">拉取 Cline Pass 模型</button>
-            <button class="btn" id="providerFetchCommandCodeBtn">拉取 Command Code 模型</button>
             <button class="btn" id="providerProbeAllBtn">探测全部模型</button>
             <button class="btn" id="providerProbeBtn">探测当前路由</button>
             <button class="btn primary" id="providerRouteTestBtn">测试当前路由</button>
@@ -815,9 +814,8 @@ function renderGlobalStatus(){
   const route=latest?`${shortModel(latest.model)} → ${latest.provider||'自动选择'}`:'暂无请求记录';
   sub.textContent=`${account} · ${route}`;
 }
-function availableModels(){ return DATA?.availableModels || DATA?.subscription || []; }
-function isCommandCodeModel(id){ return String(id||'').startsWith('commandcode/'); }
-function modelById(id){ return availableModels().find(x=>x.id===id); }
+function routeModels(){ return DATA?.subscription || []; }
+function modelById(id){ return routeModels().find(x=>x.id===id); }
 function subscriptionModelById(id){ return DATA?.subscription?.find(x=>x.id===id); }
 function validationEntry(modelId,u){
   return VALIDATION_RESULTS.get(modelId)?.[u] || null;
@@ -849,8 +847,8 @@ function providerMatchLabel(expected,actual){
 }
 
 function renderDashboard(){
-  const models = availableModels();
-  const subs = DATA?.subscription || [];
+  const models = routeModels();
+  const subs = models;
   const unique = new Set();
   subs.forEach(s => (s.meta?.upstreams||[]).forEach(u=>unique.add(u)));
   const accounts=(ACC?.accounts||[]);
@@ -861,22 +859,16 @@ function renderDashboard(){
     ['活动请求',streams.length, streams.length ? `最长空闲 ${fmtDur(maxIdle)}`:'当前无生成请求'],
     ['卡流次数',RUNTIME?.stalledTotal||0,`阈值 ${fmtDur(RUNTIME?.streamIdleTimeoutMs||0)}`],
     ['可用账号',`${activeAccounts}/${accounts.length}`,ACC?.mode==='roundrobin'?'轮询模式':'单账号模式'],
-    ['可用模型 / 上游',`${models.length} / ${unique.size}`,`Cline Pass ${subs.length} · Command Code ${Math.max(0,models.length-subs.length)}`]
+    ['Cline Pass 模型 / 上游',`${subs.length} / ${unique.size}`,'仅统计可探测的 Cline Pass 路由']
   ].map(([k,v,n])=>`<div class="stat"><div class="stat-k">${esc(k)}</div><div class="stat-v">${esc(v)}</div><div class="stat-note">${esc(n)}</div></div>`).join('');
 
   const recentModel=HISTORY.find(h=>modelById(h.model))?.model;
   if(!dashboardModelId||!modelById(dashboardModelId))dashboardModelId=recentModel||models[0]?.id||'';
-  $('#dashModelSelect').innerHTML=models.map(s=>`<option value="${esc(s.id)}">${esc(s.channel==='commandcode'?'Command Code · '+s.id.slice('commandcode/'.length):s.id)}</option>`).join('');
+  $('#dashModelSelect').innerHTML=models.map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
   $('#dashModelSelect').value=dashboardModelId;
   const selected=modelById(dashboardModelId),meta=selected?.meta||{},cfg=selected?.config||{};
-  const commandCode=selected?.channel==='commandcode'||isCommandCodeModel(dashboardModelId);
-  $('#dashProbeBtn').disabled=commandCode;
-  $('#dashValidateBtn').disabled=commandCode;
-  if(commandCode){
-    $('#dashRouteInfo').classList.remove('hidden');
-    $('#dashRouteInfo').textContent='Command Code 独立直通 · 不执行底层上游探测、校验或测速';
-    $('#dashProviderPicks').innerHTML='<div class="dashboard-provider"><div><div class="list-title">Command Code</div><div class="dashboard-provider-meta">模型已自动加上 commandcode/ 前缀并加入可用列表</div></div><span class="badge ok">可调用</span></div>';
-  }else{
+  $('#dashProbeBtn').disabled=false;
+  $('#dashValidateBtn').disabled=false;
     const pipeline=meta.pipeline==='planner'?'Vercel':meta.pipeline==='openrouter'?'OpenRouter':meta.pipeline||'尚未探测';
     const pin=meta.pinnable===true?'支持精确锚定':meta.pinnable===false?'未确认可精确锚定':'等待探测';
     $('#dashRouteInfo').classList.toggle('hidden',!meta.pipeline&&!meta.lastProvider&&!meta.validatedAt);
@@ -893,7 +885,6 @@ function renderDashboard(){
           ? `<button class="btn small" data-dashboard-provider-default="${esc(u)}">取消首选</button>`
           : state==='ok' ? `<button class="btn small" data-dashboard-provider="${esc(u)}">设为首选</button>` : statusPill(state)}
       </div>`).join(''):(all.length?'<div class="empty">上游尚未校验，点击“校验全部上游”查看可用状态</div>':'<div class="empty">还没有发现上游，点击“探测路由”开始</div>');
-  }
 
   $('#dashRequests').innerHTML = streams.length ? streams.slice(0,6).map(s=>`
     <div class="list-item">
@@ -921,7 +912,6 @@ function renderDashboard(){
 
 async function dashboardAction(action,btn){
   const model=$('#dashModelSelect').value;if(!model)return toast('请先选择模型','warn');
-  if(isCommandCodeModel(model))return toast('Command Code 是独立直通渠道，不执行底层上游探测或校验','warn',4500);
   const old=btn.textContent;btn.disabled=true;btn.classList.add('loading');btn.textContent=action==='probe'?'探测中…':'校验中…';
   try{
     if(action==='probe')await api('/api/probe',{model});
@@ -1515,7 +1505,6 @@ $('#dashProbeBtn').addEventListener('click',e=>dashboardAction('probe',e.current
 $('#dashValidateBtn').addEventListener('click',e=>dashboardAction('validate',e.currentTarget));
 $('#providerModel').addEventListener('change',e=>{if(speedRunning){e.target.value=providerModelId;return toast('请先停止当前测速','warn')}providerModelId=e.target.value;localStorage.setItem('cps_provider_model',providerModelId);go('providers',{model:providerModelId});renderProviders()});
 $('#providerFetchOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
-$('#providerFetchCommandCodeBtn').addEventListener('click',e=>commandCodeAction('refresh',e.currentTarget));
 $('#providerProbeAllBtn').addEventListener('click',e=>probeAllModels(e.currentTarget));
 $('#providerSearch').addEventListener('input',()=>{$('#allProvidersDetails').open=true;renderProviders()});
 $('#routeMode').addEventListener('change',async e=>{const s=subscriptionModelById(providerModelId),c=structuredClone(s.config||{});c.pinMode=e.target.value;try{await saveModelCfg(providerModelId,c);toast('路由模式已保存')}catch(err){toast(errMsg(err),'bad')}});
