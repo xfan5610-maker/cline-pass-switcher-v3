@@ -24,6 +24,10 @@ const DEFAULT_CONFIG = {
   publicBaseUrl: '',
   exposeCatalog: false,    // true 时 /v1/models 合并完整目录模型（默认仅订阅模型）
   upstreamBase: 'https://api.cline.bot/api/v1',
+  commandCodeBase: 'https://api.commandcode.ai/provider/v1',
+  commandCodeEnabled: false,
+  commandCodeApiKey: '',
+  commandCodeZdr: false,
   accounts: [],            // { name, key, enabled } —— Cline Pass 账号池
   accountMode: 'single',   // single=手动指定 | roundrobin=轮询
   activeAccount: 0,        // single 模式下使用的账号下标
@@ -61,6 +65,8 @@ function loadJson(file, fallback) {
 }
 const config = { ...DEFAULT_CONFIG, ...loadJson(CONFIG_PATH, {}) };
 const META = loadJson(META_PATH, { models: {}, history: [], historyDetails: {}, historySeq: 0, catalog: null, orModelsFetchedAt: 0, orModelList: null });
+META.commandCodeModels = Array.isArray(META.commandCodeModels) ? META.commandCodeModels : [];
+META.commandCodeModelsFetchedAt = Number(META.commandCodeModelsFetchedAt) || 0;
 // DeepSeek V4 Flash 的补充上游。
 const DEEPSEEK_FLASH_UPSTREAMS = [
   'open-inference', 'deepinfra', 'relace', 'sail-research', 'digitalocean',
@@ -178,15 +184,21 @@ if (process.env.CLINE_PASS_KEY) {
     config.accounts = [{ name: 'env-account', key: k, enabled: true }, ...(config.accounts || [])];
   }
 }
+if (process.env.COMMAND_CODE_API_KEY && process.env.COMMAND_CODE_API_KEY.trim()) {
+  config.commandCodeApiKey = process.env.COMMAND_CODE_API_KEY.trim();
+  config.commandCodeEnabled = true;
+}
+if (process.env.COMMAND_CODE_ZDR) config.commandCodeZdr = /^(1|true|yes|on)$/i.test(process.env.COMMAND_CODE_ZDR.trim());
 if (process.env.PROXY_KEY && process.env.PROXY_KEY.trim()) config.proxyKey = process.env.PROXY_KEY.trim();
 if (process.env.PUBLIC_BASE_URL) config.publicBaseUrl = process.env.PUBLIC_BASE_URL.trim();
 if (process.env.PORT) config.port = Number(process.env.PORT) || config.port;
 
 function isConfigured() {
-  return !!config.apiKey || enabledAccounts().length > 0;
+  return !!config.apiKey || enabledAccounts().length > 0
+    || (config.commandCodeEnabled && !!config.commandCodeApiKey);
 }
 if (!isConfigured()) {
-  console.warn('[提示] 尚未配置上游 API Key：打开控制台「账号管理」添加账号并保存即可；服务已启动。');
+  console.warn('[提示] 尚未配置任何渠道 API Key：可在「账号管理」配置 Cline Pass，或在「设置」配置 Command Code；服务已启动。');
 }
 
 // 账号选择：roundrobin 在启用的账号间轮询；single 使用 activeAccount 指定的账号
@@ -1022,6 +1034,251 @@ async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTi
   return { ...last, status: last?.status ?? 502, trace, t0, netError: last?.netError || null };
 }
 
+// ---------- Command Code 独立中转渠道 ----------
+const COMMAND_CODE_PREFIX = 'commandcode/';
+const COMMAND_CODE_ALLOWED_VENDORS = Object.freeze([
+  ['Anthropic', (id) => /^claude-[a-z0-9.-]+$/i.test(id)],
+  ['DeepSeek', (id) => /^deepseek\//i.test(id)],
+  ['Google', (id) => /^google\//i.test(id)],
+  ['Moonshot AI', (id) => /^moonshotai\//i.test(id)],
+  ['OpenAI', (id) => /^gpt-[a-z0-9.-]+$/i.test(id)],
+  ['Z AI', (id) => /^(?:zai-org|z-ai)\//i.test(id)],
+]);
+function commandCodeRawModel(modelId) {
+  const id = String(modelId || '');
+  return id.startsWith(COMMAND_CODE_PREFIX) ? id.slice(COMMAND_CODE_PREFIX.length) : null;
+}
+function commandCodeVendor(rawModel) {
+  return COMMAND_CODE_ALLOWED_VENDORS.find((pair) => pair[1](String(rawModel || '')))?.[0] || null;
+}
+function commandCodePublicModel(rawModel) {
+  return COMMAND_CODE_PREFIX + String(rawModel || '');
+}
+function commandCodeModels() {
+  return META.commandCodeModels.filter((id) => commandCodeVendor(id)).map(commandCodePublicModel);
+}
+function commandCodeHeaders() {
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + (config.commandCodeApiKey || ''),
+  };
+  if (config.commandCodeZdr) headers['x-cmd-zdr'] = '1';
+  return headers;
+}
+function commandCodeSettings() {
+  return {
+    enabled: !!config.commandCodeEnabled,
+    configured: !!config.commandCodeApiKey,
+    apiKey: config.commandCodeApiKey || '',
+    zdr: !!config.commandCodeZdr,
+    baseUrl: config.commandCodeBase,
+    allowedVendors: COMMAND_CODE_ALLOWED_VENDORS.map((pair) => pair[0]),
+    models: commandCodeModels(),
+    modelsFetchedAt: META.commandCodeModelsFetchedAt || 0,
+  };
+}
+async function refreshCommandCodeModels() {
+  const headers = config.commandCodeApiKey ? { Authorization: 'Bearer ' + config.commandCodeApiKey } : {};
+  const result = await fetchJSON(config.commandCodeBase + '/models', { headers }, 30000);
+  const status = result.status;
+  const json = result.json;
+  if (status < 200 || status >= 300 || json?.error) {
+    throw new Error(errText(json?.error?.message || json?.error || json?.raw || ('Command Code HTTP ' + status)).slice(0, 1000));
+  }
+  const raw = (Array.isArray(json?.data) ? json.data : [])
+    .map((item) => typeof item === 'string' ? item : item?.id)
+    .filter((id) => typeof id === 'string' && commandCodeVendor(id));
+  META.commandCodeModels = [...new Set(raw)].sort((a, b) => a.localeCompare(b));
+  META.commandCodeModelsFetchedAt = Date.now();
+  saveMeta();
+  return commandCodeSettings();
+}
+function openAIContentToAnthropic(content) {
+  if (typeof content === 'string') return [{ type: 'text', text: content }];
+  if (!Array.isArray(content)) return content == null ? [] : [{ type: 'text', text: String(content) }];
+  const blocks = [];
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue;
+    if (part.type === 'text' && typeof part.text === 'string') blocks.push({ type: 'text', text: part.text });
+    if (part.type === 'image_url') {
+      const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
+      if (typeof url !== 'string' || !url) continue;
+      const data = /^data:([^;,]+);base64,(.+)$/s.exec(url);
+      blocks.push(data
+        ? { type: 'image', source: { type: 'base64', media_type: data[1], data: data[2] } }
+        : { type: 'image', source: { type: 'url', url } });
+    }
+  }
+  return blocks;
+}
+function openAIToAnthropic(body, rawModel) {
+  const system = [];
+  const messages = [];
+  const append = (role, content) => {
+    const blocks = Array.isArray(content) ? content : [{ type: 'text', text: String(content ?? '') }];
+    const last = messages[messages.length - 1];
+    if (last?.role === role && Array.isArray(last.content)) last.content.push(...blocks);
+    else messages.push({ role, content: blocks });
+  };
+  for (const message of Array.isArray(body.messages) ? body.messages : []) {
+    if (message?.role === 'system' || message?.role === 'developer') {
+      system.push(...openAIContentToAnthropic(message.content).filter((block) => block.type === 'text'));
+      continue;
+    }
+    if (message?.role === 'tool') {
+      append('user', [{ type: 'tool_result', tool_use_id: message.tool_call_id || 'tool', content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? '') }]);
+      continue;
+    }
+    const role = message?.role === 'assistant' ? 'assistant' : 'user';
+    const blocks = openAIContentToAnthropic(message?.content);
+    if (role === 'assistant' && Array.isArray(message?.tool_calls)) {
+      for (const call of message.tool_calls) {
+        let input = {};
+        try { input = JSON.parse(call?.function?.arguments || '{}'); } catch { input = { raw: call?.function?.arguments || '' }; }
+        blocks.push({ type: 'tool_use', id: call?.id || ('tool_' + messages.length), name: call?.function?.name || 'tool', input });
+      }
+    }
+    append(role, blocks.length ? blocks : [{ type: 'text', text: '' }]);
+  }
+  const out = {
+    model: rawModel,
+    max_tokens: Number(body.max_completion_tokens ?? body.max_tokens) || 4096,
+    messages,
+  };
+  if (system.length) out.system = system;
+  if (Number.isFinite(Number(body.temperature))) out.temperature = Number(body.temperature);
+  if (Number.isFinite(Number(body.top_p))) out.top_p = Number(body.top_p);
+  if (body.stop != null) out.stop_sequences = Array.isArray(body.stop) ? body.stop : [body.stop];
+  const tools = (Array.isArray(body.tools) ? body.tools : []).filter((tool) => tool?.type === 'function' && tool.function?.name)
+    .map((tool) => ({ name: tool.function.name, description: tool.function.description || '', input_schema: tool.function.parameters || { type: 'object', properties: {} } }));
+  if (body.tool_choice !== 'none' && tools.length) {
+    out.tools = tools;
+    if (body.tool_choice === 'required') out.tool_choice = { type: 'any' };
+    else if (body.tool_choice === 'auto') out.tool_choice = { type: 'auto' };
+    else if (body.tool_choice?.type === 'function' && body.tool_choice.function?.name) out.tool_choice = { type: 'tool', name: body.tool_choice.function.name };
+  }
+  return out;
+}
+function anthropicToOpenAI(json, publicModel) {
+  if (!json || json.type === 'error' || json.error) {
+    const error = json?.error || json || {};
+    return { error: {
+      message: error.message || 'Command Code Anthropic request failed',
+      type: error.type || 'upstream_error',
+      code: error.code || null,
+    } };
+  }
+  const blocks = Array.isArray(json.content) ? json.content : [];
+  const text = blocks.filter((block) => block?.type === 'text').map((block) => block.text || '').join('');
+  const reasoning = blocks.filter((block) => block?.type === 'thinking').map((block) => block.thinking || '').join('');
+  const toolCalls = blocks.filter((block) => block?.type === 'tool_use').map((block, index) => ({
+    id: block.id || ('tool_' + index),
+    type: 'function',
+    function: { name: block.name || 'tool', arguments: JSON.stringify(block.input ?? {}) },
+  }));
+  const finish = json.stop_reason === 'max_tokens' ? 'length'
+    : json.stop_reason === 'tool_use' ? 'tool_calls' : 'stop';
+  const message = { role: 'assistant', content: text || null };
+  if (reasoning) message.reasoning_content = reasoning;
+  if (toolCalls.length) message.tool_calls = toolCalls;
+  const promptTokens = Number(json.usage?.input_tokens) || 0;
+  const completionTokens = Number(json.usage?.output_tokens) || 0;
+  return {
+    id: json.id || ('chatcmpl-cc-' + Date.now().toString(36)),
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: publicModel,
+    choices: [{ index: 0, message, finish_reason: finish, logprobs: null }],
+    usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens },
+  };
+}
+function completionAsSSE(json) {
+  const id = json.id || ('chatcmpl-cc-' + Date.now().toString(36));
+  const created = json.created || Math.floor(Date.now() / 1000);
+  const model = json.model || '';
+  const choice = json.choices?.[0] || {};
+  const message = choice.message || {};
+  const frames = [
+    { id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }] },
+  ];
+  if (typeof message.reasoning_content === 'string' && message.reasoning_content) {
+    frames.push({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { reasoning_content: message.reasoning_content }, finish_reason: null }] });
+  }
+  if (typeof message.content === 'string' && message.content) {
+    frames.push({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { content: message.content }, finish_reason: null }] });
+  }
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
+    frames.push({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { tool_calls: message.tool_calls.map((call, index) => ({ index, ...call })) }, finish_reason: null }] });
+  }
+  frames.push({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: {}, finish_reason: choice.finish_reason || 'stop' }] });
+  if (json.usage) frames.push({ id, object: 'chat.completion.chunk', created, model, choices: [], usage: json.usage });
+  return frames.map((frame) => 'data: ' + JSON.stringify(frame) + '\n\n').join('') + 'data: [DONE]\n\n';
+}
+function commandCodeError(json, status) {
+  if (json?.error && typeof json.error === 'object') return json;
+  return { error: {
+    message: errText(json?.error?.message || json?.error || json?.raw || ('Command Code HTTP ' + status)),
+    type: status === 401 ? 'authentication_error' : status === 429 ? 'rate_limit_error' : status >= 500 ? 'server_error' : 'invalid_request_error',
+  } };
+}
+async function runCommandCode(req, body, publicModel, options = {}) {
+  const stream = !!options.stream;
+  const t0 = Date.now();
+  const rawModel = commandCodeRawModel(publicModel);
+  const vendor = commandCodeVendor(rawModel);
+  const base = { t0, acc: { name: 'Command Code' }, routing: { finalProvider: 'commandcode', canonicalSlug: rawModel, pipeline: 'commandcode' } };
+  if (!vendor) return { ...base, status: 400, out: { error: { message: '该 Command Code 模型厂商不在允许名单中', type: 'invalid_request_error' } }, trace: [{ upstream: 'commandcode', status: 400, ms: 0, note: 'vendor blocked' }] };
+  if (!config.commandCodeEnabled || !config.commandCodeApiKey) {
+    return { ...base, status: 503, out: { error: { message: 'Command Code 通道未启用或尚未配置 API Key', type: 'configuration_error' } }, trace: [{ upstream: 'commandcode', status: 503, ms: 0, note: 'not configured' }] };
+  }
+  const anthropic = vendor === 'Anthropic';
+  const upstreamBody = anthropic
+    ? openAIToAnthropic(body, rawModel)
+    : { ...body, model: rawModel, stream };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 180000);
+  const onClose = () => ctrl.abort();
+  req.on('close', onClose);
+  let handedOff = false;
+  try {
+    const up = await fetch(config.commandCodeBase + (anthropic ? '/messages' : '/chat/completions'), {
+      method: 'POST', headers: commandCodeHeaders(), body: JSON.stringify(upstreamBody), signal: ctrl.signal,
+    });
+    const ms = Date.now() - t0;
+    const ctype = up.headers.get('content-type') || '';
+    if (stream && !anthropic && up.ok && /text\/event-stream/i.test(ctype)) {
+      handedOff = true;
+      return {
+        ...base, status: 200, streamUp: up, streamHead: null,
+        headers: {}, trace: [{ upstream: 'commandcode', status: 200, ms, note: 'stream' }],
+        streamAbort: () => ctrl.abort(),
+        streamCleanup: () => { clearTimeout(timer); req.off('close', onClose); },
+      };
+    }
+    const text = await up.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    if (!up.ok || json?.error || json?.type === 'error') {
+      const out = anthropic ? anthropicToOpenAI(json, publicModel) : commandCodeError(json, up.status);
+      return { ...base, status: up.status || 502, out, trace: [{ upstream: 'commandcode', status: up.status || 502, ms, note: errText(out.error).slice(0, 160) }] };
+    }
+    const out = anthropic ? anthropicToOpenAI(json, publicModel) : { ...json, model: publicModel };
+    if (stream) {
+      const streamUp = new Response(completionAsSSE(out), { status: 200, headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } });
+      return { ...base, status: 200, streamUp, streamHead: null, headers: {}, trace: [{ upstream: 'commandcode', status: 200, ms, note: anthropic ? 'buffered anthropic compatibility stream' : 'buffered compatibility stream' }], streamAbort: () => {}, streamCleanup: () => {} };
+    }
+    return { ...base, status: 200, out, trace: [{ upstream: 'commandcode', status: 200, ms, note: anthropic ? 'anthropic adapted' : 'ok' }] };
+  } catch (e) {
+    const message = ctrl.signal.aborted ? 'Command Code 请求超时或客户端已断开' : ('Command Code 请求失败：' + e.message);
+    return { ...base, status: 502, out: { error: { message, type: 'upstream_error' } }, trace: [{ upstream: 'commandcode', status: 502, ms: Date.now() - t0, note: message.slice(0, 160) }] };
+  } finally {
+    if (!handedOff) {
+      clearTimeout(timer);
+      req.off('close', onClose);
+    }
+  }
+}
+
 async function handleChat(req, res) {
   let raw;
   try { raw = await readBody(req); }
@@ -1052,11 +1309,14 @@ async function handleChat(req, res) {
     return sendJSON(res, 400, { error: { message: 'model is required' } });
   }
 
-  const cfg = config.perModel[modelId] || {};
-  const targets = buildAttempts(modelId, cfg).map((a) => a.upstream).filter(Boolean);
+  const commandCode = commandCodeRawModel(modelId) !== null;
+  const cfg = commandCode ? {} : (config.perModel[modelId] || {});
+  const targets = commandCode ? ['commandcode'] : buildAttempts(modelId, cfg).map((a) => a.upstream).filter(Boolean);
   const isStream = !!body.stream;
 
-  const chain = await runChatChain(req, body, modelId, cfg, { stream: isStream });
+  const chain = commandCode
+    ? await runCommandCode(req, body, modelId, { stream: isStream })
+    : await runChatChain(req, body, modelId, cfg, { stream: isStream });
 
   if (isStream && chain.streamUp) {
     // V3：显式泵送 WebStream，增加空闲超时、背压、有限尾部缓存与完整清理。
@@ -1180,8 +1440,11 @@ async function handleChat(req, res) {
       finished = true;
       state.state = 'DONE';
       captureSSE(null, true);
-      const { provider, canonical } = v3ParseTailRouting(tail);
-      const routeEvidence = buildUpstreamEvidence(null, chain.headers, {
+      const parsedRoute = commandCode
+        ? { provider: 'commandcode', canonical: commandCodeRawModel(modelId) }
+        : v3ParseTailRouting(tail);
+      const { provider, canonical } = parsedRoute;
+      const routeEvidence = commandCode ? null : buildUpstreamEvidence(null, chain.headers, {
         finalProvider: provider, canonicalSlug: canonical, pipeline: provider ? 'stream' : null,
       }, { candidates: targets });
       record(modelId, {
@@ -1192,7 +1455,7 @@ async function handleChat(req, res) {
           stream: true, content: streamText, reasoning: streamReasoning || null,
           toolCalls: [...streamToolCalls.values()], usage: streamUsage, finishReason: streamFinishReason,
         }),
-      });
+      }, !commandCode);
       recorded = true;
       if (!res.writableEnded) res.end();
     } catch (err) {
@@ -1206,7 +1469,7 @@ async function handleChat(req, res) {
 
       if (!recorded) {
         captureSSE(null, true);
-        const routeEvidence = buildUpstreamEvidence(null, chain.headers, {}, { candidates: targets });
+        const routeEvidence = commandCode ? null : buildUpstreamEvidence(null, chain.headers, {}, { candidates: targets });
         record(modelId, {
           provider: null, canonical: null, ms: Date.now() - t0, stream: true, error: message,
           account: acc?.name || null, attempts: chain.trace.map((t) => t.upstream || 'auto'),
@@ -1215,7 +1478,7 @@ async function handleChat(req, res) {
             stream: true, content: streamText, reasoning: streamReasoning || null,
             toolCalls: [...streamToolCalls.values()], usage: streamUsage, finishReason: streamFinishReason,
           }, { message, type: stalled ? 'stream_idle_timeout' : 'stream_error', trace: chain.trace }),
-        });
+        }, !commandCode);
         recorded = true;
       }
 
@@ -1245,7 +1508,7 @@ async function handleChat(req, res) {
       attempts: chain.trace?.map((t) => t.upstream || 'auto') || [], trace: chain.trace || [],
       error: 'no upstream response', account: acc?.name || null,
       exchange: historyExchange(requestHistory, null, { status: 502, error: 'no upstream response', trace: chain.trace || [] }),
-    });
+    }, !commandCode);
     return sendJSON(res, 502, { error: { message: 'no upstream response', type: 'upstream_error' } });
   }
   // 客户端实际使用成功的新订阅模型自动收录进列表
@@ -1254,12 +1517,12 @@ async function handleChat(req, res) {
     saveConfig();
   }
   const historyError = status !== 200 ? out?.error?.message || errText(out?.error) || 'upstream error' : null;
-  const routeEvidence = buildUpstreamEvidence(out, chain.headers, routing, {
+  const routeEvidence = commandCode ? null : buildUpstreamEvidence(out, chain.headers, routing, {
     candidates: [...targets, ...errorProviders(out?.error)].filter(Boolean),
   });
   record(modelId, {
-    provider: routing.finalProvider || null,
-    canonical: routing.canonicalSlug || null,
+    provider: commandCode ? 'commandcode' : routing.finalProvider || null,
+    canonical: commandCode ? commandCodeRawModel(modelId) : routing.canonicalSlug || null,
     ms: Date.now() - chain.t0,
     stream: false,
     attempts: chain.trace.map((t) => t.upstream || 'auto'),
@@ -1269,13 +1532,13 @@ async function handleChat(req, res) {
     routeEvidence,
     exchange: historyExchange(requestHistory, status === 200 ? out : null,
       status === 200 ? null : { status, error: out?.error || out, trace: chain.trace }),
-  });
+  }, !commandCode);
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'X-Cline-Target-Upstream': targets.length ? targets.join('>') : 'auto',
-    'X-Cline-Actual-Upstream': routing.finalProvider || 'unknown',
-    'X-Cline-Canonical-Model': routing.canonicalSlug || '',
+    'X-Cline-Actual-Upstream': commandCode ? 'commandcode' : routing.finalProvider || 'unknown',
+    'X-Cline-Canonical-Model': commandCode ? commandCodeRawModel(modelId) : routing.canonicalSlug || '',
     'X-Cline-Attempts': String(chain.trace.length),
     'X-Cline-Account': headerSafe(acc ? acc.name : ''),
   });
@@ -1465,7 +1728,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/models') {
       const cat = await catalog();
       const sub = config.knownModels.map((id) => ({ id, config: config.perModel[id] || {}, meta: META.models[id] || null }));
-      return sendJSON(res, 200, { subscription: sub, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null });
+      const cc = commandCodeSettings();
+      return sendJSON(res, 200, { subscription: sub, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null,
+        commandCode: { enabled: cc.enabled, configured: cc.configured, zdr: cc.zdr, allowedVendors: cc.allowedVendors, models: cc.models, modelsFetchedAt: cc.modelsFetchedAt } });
     }
     if (req.method === 'GET' && p === '/api/route-evidence') {
       const model = url.searchParams.get('model');
@@ -1611,16 +1876,36 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true, ms: Date.now() - t0, model });
     }
     if (req.method === 'GET' && p === '/api/security') {
-      return sendJSON(res, 200, { proxyKey: config.proxyKey || '', publicBaseUrl: config.publicBaseUrl || '', authRequired: !!PROXY_KEY, exposeCatalog: !!config.exposeCatalog });
+      return sendJSON(res, 200, { proxyKey: config.proxyKey || '', publicBaseUrl: config.publicBaseUrl || '', authRequired: !!PROXY_KEY, exposeCatalog: !!config.exposeCatalog, commandCode: commandCodeSettings() });
     }
     if (req.method === 'POST' && p === '/api/security') {
       const body = JSON.parse(await readBody(req).then((b) => b.toString()));
       if (body.proxyKey !== undefined) config.proxyKey = String(body.proxyKey).trim();
       if (body.publicBaseUrl !== undefined) config.publicBaseUrl = String(body.publicBaseUrl).trim().replace(/\/+$/, '');
       if (body.exposeCatalog !== undefined) config.exposeCatalog = !!body.exposeCatalog;
+      if (body.commandCodeEnabled !== undefined) config.commandCodeEnabled = !!body.commandCodeEnabled;
+      if (body.commandCodeApiKey !== undefined) config.commandCodeApiKey = String(body.commandCodeApiKey).trim();
+      if (body.commandCodeZdr !== undefined) config.commandCodeZdr = !!body.commandCodeZdr;
       saveConfig();
       PROXY_KEY = config.proxyKey || '';
-      return sendJSON(res, 200, { ok: true, proxyKey: config.proxyKey, publicBaseUrl: config.publicBaseUrl, authRequired: !!PROXY_KEY, proxyBase: publicProxyBase(), exposeCatalog: !!config.exposeCatalog });
+      return sendJSON(res, 200, { ok: true, proxyKey: config.proxyKey, publicBaseUrl: config.publicBaseUrl, authRequired: !!PROXY_KEY, proxyBase: publicProxyBase(), exposeCatalog: !!config.exposeCatalog, commandCode: commandCodeSettings() });
+    }
+    if (req.method === 'POST' && p === '/api/commandcode/refresh-models') {
+      const settings = await refreshCommandCodeModels();
+      return sendJSON(res, 200, { ok: true, commandCode: settings });
+    }
+    if (req.method === 'POST' && p === '/api/commandcode/test') {
+      if (!config.commandCodeEnabled || !config.commandCodeApiKey) return sendJSON(res, 400, { ok: false, error: '请先启用 Command Code 并保存 API Key' });
+      const rawModel = META.commandCodeModels.find((id) => commandCodeVendor(id) === 'DeepSeek') || 'deepseek/deepseek-v4-flash';
+      const started = Date.now();
+      const result = await fetchJSON(config.commandCodeBase + '/chat/completions', {
+        method: 'POST', headers: commandCodeHeaders(),
+        body: JSON.stringify({ model: rawModel, messages: [{ role: 'user', content: 'Reply OK' }], max_tokens: 16 }),
+      }, 120000);
+      const error = result.json?.error?.message || result.json?.error || (result.status >= 400 ? result.json?.raw : null);
+      return sendJSON(res, 200, error
+        ? { ok: false, ms: Date.now() - started, model: commandCodePublicModel(rawModel), error: errText(error).slice(0, 1000) }
+        : { ok: true, ms: Date.now() - started, model: commandCodePublicModel(rawModel) });
     }
     if (req.method === 'POST' && p === '/api/validate-upstreams') {
       const { model } = JSON.parse(await readBody(req).then((b) => b.toString()));
@@ -1675,9 +1960,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && (p === '/v1/models' || p === '/api/v1/models' || p === '/models')) {
       // 默认只暴露订阅模型，避免目录模型淹没客户端的模型选择器；exposeCatalog=true 时合并完整目录
-      const ids = config.exposeCatalog
+      const clineIds = config.exposeCatalog
         ? [...new Set([...config.knownModels, ...(await catalog())])]
         : [...new Set([...config.knownModels, ...Object.keys(config.perModel)])];
+      const commandCodeIds = config.commandCodeEnabled && config.commandCodeApiKey ? commandCodeModels() : [];
+      const ids = [...new Set([...clineIds, ...commandCodeIds])];
       return sendJSON(res, 200, { object: 'list', data: ids.map((id) => ({ id, object: 'model' })) });
     }
     if (CHAT_PATHS.has(p) && req.method === 'POST') return handleChat(req, res);
