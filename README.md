@@ -1,15 +1,15 @@
 # Cline Pass 上游控制台（cline-pass-switcher）
 
-> 当前版本：**v1.4.0**
+> 当前版本：**v1.5.0**
 
 本仓库是基于 [liqiming-whu/cline-pass-switcher](https://github.com/liqiming-whu/cline-pass-switcher) 的移动端适配修改版；原项目源自 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher)。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-green)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED)
 
-这是一个**零依赖 Node.js 本地 / 服务器代理 + Web 控制台**，用于管理 [Cline Pass](https://cline.bot/cline-pass) 订阅模型背后的上游渠道，并向 OpenAI 兼容客户端提供统一 API。
+这是一个**零依赖 Node.js 本地 / 服务器代理 + Web 控制台**：既可管理 [Cline Pass](https://cline.bot/cline-pass) 订阅模型背后的上游渠道，也可把 [Command Code Provider API](https://commandcode.ai/docs/provider) 作为独立模型渠道接入，并向 OpenAI 兼容客户端提供统一 API。
 
 本版本重点优化 Android / Termux 手机上的日常操作：路由、上游、测速和模型探测统一收敛，减少页面跳转和重复入口。
 
@@ -26,6 +26,8 @@
 - 📈 **请求观测**：查看实时请求、请求历史、实际命中上游、耗时、错误和尝试序列。
 - 🔑 **代理密钥**：下游客户端的代理密钥与 Cline Pass 上游 API Key 分离。
 - 🌐 **OpenAI 兼容接口**：客户端只需填写控制台中的 API Base URL。
+- 🔀 **Command Code 独立通道**：动态同步允许名单模型，不探测或推测其底层推理厂商。
+- 🧩 **Claude 协议适配**：OpenAI Chat Completions 客户端可通过 `commandcode/claude-*` 调用 Anthropic Messages 接口。
 - 🧾 **路由证据 JSON**：探测、路由测试与测速返回统一的实际命中、候选上游、尝试链路和可识别响应头。
 
 ---
@@ -231,6 +233,32 @@ Model:    cline-pass/glm-5.2
 
 本地使用且未设置代理密钥时，客户端 API Key 可以留空。
 
+## 4. 配置 Command Code（可选）
+
+进入“设置与安全 → Command Code 通道”，填写独立的 Command Code API Key，启用通道后依次点击：
+
+```text
+保存 Command Code
+同步允许模型
+```
+
+同步后的模型会以 `commandcode/` 为前缀加入 `/v1/models`，例如：
+
+```text
+commandcode/deepseek/deepseek-v4-flash
+commandcode/google/gemini-3.8-flash
+commandcode/moonshotai/Kimi-K3
+commandcode/gpt-5.5
+commandcode/z-ai/glm-5.3-flash
+commandcode/claude-sonnet-5
+```
+
+只允许以下六家厂商：Anthropic、DeepSeek、Google、Moonshot AI、OpenAI、Z AI。其他厂商以及以后新增的未知厂商默认被过滤。
+
+Command Code 仅作为独立中转渠道：请求历史中的渠道固定记录为 `commandcode`，不会对其底层上游进行探测、测速或供应商判断。非 Claude 模型原样走 OpenAI Chat Completions；Claude 请求由网关转换到 Anthropic Messages，再转换回 OpenAI 响应。Claude 的 OpenAI 兼容流式响应目前会先等待完整 Anthropic 响应，再以 SSE 格式返回。
+
+可选开启 ZDR；开启后发送 `x-cmd-zdr: 1`，没有 ZDR 可用渠道的模型可能返回 HTTP 422。
+
 ---
 
 # 路由与上游机制
@@ -356,6 +384,9 @@ config.example.json
 | 字段 / 环境变量 | 说明 |
 |---|---|
 | `accounts` / `CLINE_PASS_KEY` | Cline Pass 账号池或启动时的上游 Key |
+| `commandCodeEnabled` | 是否启用 Command Code 独立通道 |
+| `commandCodeApiKey` / `COMMAND_CODE_API_KEY` | Command Code Provider API Key |
+| `commandCodeZdr` / `COMMAND_CODE_ZDR` | 是否为 Command Code 请求发送 `x-cmd-zdr: 1` |
 | `accountMode` | `single` / `roundrobin` |
 | `proxyKey` / `PROXY_KEY` | 下游客户端代理密钥；空表示不鉴权 |
 | `publicBaseUrl` / `PUBLIC_BASE_URL` | 公网代理地址，不含 `/v1` |
@@ -371,7 +402,7 @@ config.example.json
 # 安全提醒
 
 - 对外部署时建议设置独立 `proxyKey`；
-- 不要把 Cline Pass API Key、代理密钥或 `config.json` 提交到公开仓库；
+- 不要把 Cline Pass API Key、Command Code API Key、代理密钥或 `config.json` 提交到公开仓库；
 - 批量测速和多上游回退都会产生真实请求，请留意订阅额度；
 - 上游可用性、价格和速度会变化，实时探测与实际请求记录才是最终依据。
 
