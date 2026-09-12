@@ -1,6 +1,5 @@
 {
   "port": 3123,
-  "apiKey": "",
   "proxyKey": "",
   "publicBaseUrl": "",
   "exposeCatalog": false,
