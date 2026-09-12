@@ -623,7 +623,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             <button class="btn" id="refreshCommandCodeModelsBtn">手动拉取最新模型</button>
             <button class="btn" id="testCommandCodeBtn">测试密钥（小请求）</button>
           </div>
-          <div class="card-sub" id="commandCodeModelCount" style="margin-top:14px">尚未同步模型</div>
+          <div class="card-sub" id="commandCodeModelCount" style="margin-top:14px">尚未拉取模型</div>
           <div class="catalog-list" id="commandCodeModelList" style="margin-top:10px;max-height:300px"></div>
         </div>
         <div class="card">
@@ -1407,7 +1407,7 @@ function renderSettings(){
   $('#commandCodeModelCount').textContent=models.length
     ? `允许模型 ${models.length} 个${(DATA?.commandCode?.modelsFetchedAt||cc.modelsFetchedAt)?' · 同步于 '+fmtDateTime(DATA?.commandCode?.modelsFetchedAt||cc.modelsFetchedAt):''}`
     : '尚未同步允许名单模型';
-  $('#commandCodeModelList').innerHTML=models.map(id=>`<div class="catalog-item mono">${esc(id)}</div>`).join('')||'<div class="empty">保存密钥后点击“同步允许模型”</div>';
+  $('#commandCodeModelList').innerHTML=models.map(id=>`<div class="catalog-item mono">${esc(id)}</div>`).join('')||'<div class="empty">保存密钥后点击“手动拉取最新模型”</div>';
   renderSettingsRuntime();renderCatalog();
 }
 function renderCatalog(){
