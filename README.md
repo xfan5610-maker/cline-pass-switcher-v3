@@ -1,11 +1,11 @@
 # Cline Pass 上游控制台（cline-pass-switcher）
 
-> 当前版本：**v1.5.0**
+> 当前版本：**v1.5.1**
 
 本仓库是基于 [liqiming-whu/cline-pass-switcher](https://github.com/liqiming-whu/cline-pass-switcher) 的移动端适配修改版；原项目源自 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher)。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.5.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.1-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-green)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED)
 
@@ -239,10 +239,10 @@ Model:    cline-pass/glm-5.2
 
 ```text
 保存 Command Code
-同步允许模型
+手动拉取最新模型
 ```
 
-同步后的模型会以 `commandcode/` 为前缀加入 `/v1/models`，例如：
+手动拉取后会用最新目录替换旧缓存；允许名单内的模型会自动加上 `commandcode/` 前缀，同时加入控制台统一可用模型列表与 `/v1/models`。拉取结果会显示新增、下线和当前总数，例如：
 
 ```text
 commandcode/deepseek/deepseek-v4-flash
