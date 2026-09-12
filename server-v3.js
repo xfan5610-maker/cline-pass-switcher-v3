@@ -187,7 +187,7 @@ if (config.apiKey) {
   const legacyKey = String(config.apiKey).trim();
   const accounts = Array.isArray(config.accounts) ? config.accounts : [];
   if (legacyKey && !accounts.some((a) => a?.key === legacyKey)) {
-    accounts.unshift({ name: accounts.length ? '旧版账号' : '默认账号', key: legacyKey, enabled: true });
+    accounts.push({ name: accounts.length ? '旧版账号' : '默认账号', key: legacyKey, enabled: true });
   }
   config.accounts = accounts;
   config.apiKey = '';
