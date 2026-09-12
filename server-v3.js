@@ -818,7 +818,7 @@ let V3_STALLED_TOTAL = 0;
 function v3RuntimeSnapshot() {
   const now = Date.now();
   return {
-    version: 'v3-mobile-1.5.2',
+    version: 'v3-mobile-1.5.3',
     startedAt: V3_STARTED_AT,
     uptimeMs: now - V3_STARTED_AT,
     streamIdleTimeoutMs: V3_STREAM_IDLE_MS,
@@ -1808,15 +1808,8 @@ const server = http.createServer(async (req, res) => {
       const cat = await catalog();
       const sub = config.knownModels.map((id) => ({ id, config: config.perModel[id] || {}, meta: META.models[id] || null }));
       const cc = commandCodeSettings();
-      const commandCodeActive = cc.enabled && cc.configured;
-      const availableModels = [
-        ...sub,
-        ...(commandCodeActive ? cc.models.map((id) => ({
-          id, channel: 'commandcode', config: {},
-          meta: { pipeline: 'commandcode', pinnable: false, upstreams: [], lastProvider: 'commandcode' },
-        })) : []),
-      ];
-      return sendJSON(res, 200, { subscription: sub, availableModels, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null,
+      // 管理控制台的“可用模型”仅代表可探测上游的 Cline Pass 模型；Command Code 独立列在 commandCode 中。
+      return sendJSON(res, 200, { subscription: sub, availableModels: sub, catalogCount: cat.length, catalog: cat, proxyBase: publicProxyBase(), officialFetch: META.officialModelsFetch || null,
         commandCode: { enabled: cc.enabled, configured: cc.configured, zdr: cc.zdr, allowedVendors: cc.allowedVendors, models: cc.models, modelsFetchedAt: cc.modelsFetchedAt } });
     }
     if (req.method === 'GET' && p === '/api/route-evidence') {
