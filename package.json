@@ -1,6 +1,6 @@
 {
   "name": "cline-pass-switcher",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "移动端多渠道 AI 网关：Cline Pass 上游路由与 Command Code 独立中转，OpenAI 兼容代理（零依赖 Node）",
   "private": false,
   "license": "MIT",
