@@ -1,11 +1,11 @@
 # Cline Pass 上游控制台（cline-pass-switcher）
 
-> 当前版本：**v1.5.1**
+> 当前版本：**v1.5.2**
 
 本仓库是基于 [liqiming-whu/cline-pass-switcher](https://github.com/liqiming-whu/cline-pass-switcher) 的移动端适配修改版；原项目源自 [munmunjaklin458-afk/cline-pass-switcher](https://github.com/munmunjaklin458-afk/cline-pass-switcher)。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.5.1-blue)
+![Version](https://img.shields.io/badge/version-1.5.2-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-green)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED)
 
@@ -29,6 +29,7 @@
 - 🔀 **Command Code 独立通道**：动态同步允许名单模型，不探测或推测其底层推理厂商。
 - 🧩 **Claude 协议适配**：OpenAI Chat Completions 客户端可通过 `commandcode/claude-*` 调用 Anthropic Messages 接口。
 - 🧾 **路由证据 JSON**：探测、路由测试与测速返回统一的实际命中、候选上游、尝试链路和可识别响应头。
+- 💾 **安全持久化**：自动创建数据目录，配置与历史使用原子写入；损坏 JSON 会保留带时间戳的备份并输出警告。
 
 ---
 
@@ -99,7 +100,7 @@
 
 实时请求可查看当前模型、目标上游、持续时间、最后收到数据的时间和流状态；异常流可以单独终止。请求历史可搜索模型、账号或上游，并按成功 / 异常筛选。
 
-历史仅保留最近 **10** 条，超过后自动删除最旧记录。列表默认只加载摘要；点“查看完整 JSON”才会读取该条模型输出、路由证据和失败详情，避免手机页面卡顿。输入消息、系统提示词和工具定义原文不会写入历史；仅保留消息数量、估算字符数、是否含系统提示词/工具的上下文摘要。
+历史仅保留最近 **10** 条，超过后自动删除最旧记录。列表默认只加载摘要；点“查看完整 JSON”才会读取该条模型输出、路由证据和失败详情，避免手机页面卡顿。输入消息、系统提示词和工具定义原文不会写入历史；仅保留消息数量、估算字符数、是否含系统提示词/工具的上下文摘要。流式输出在采集阶段即受 `HISTORY_VALUE_LIMIT` 限制，避免长流先无限累积再截断。
 
 ### 上游名称匹配
 
@@ -151,7 +152,7 @@ http://127.0.0.1:3123/
 curl -fsSL https://raw.githubusercontent.com/xfan5610-maker/cline-pass-switcher-v3/main/install-termux.sh | bash
 ```
 
-脚本会拉取最新代码、重新检查并绑定 PM2 服务。
+脚本会拉取最新代码、重新检查；已有 PM2 服务会原地重启并保留原有环境变量，新安装才创建进程。
 
 ## 常用 Termux 命令
 
