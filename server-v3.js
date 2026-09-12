@@ -17,6 +17,8 @@ const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const META_PATH = path.join(DATA_DIR, 'metadata.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+
 const DEFAULT_CONFIG = {
   port: 3123,
   apiKey: '',
@@ -59,8 +61,35 @@ const DEFAULT_CONFIG = {
 function loadJson(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
+  } catch (e) {
+    if (e?.code === 'ENOENT') return fallback;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backup = `${file}.corrupt-${stamp}`;
+    try { fs.copyFileSync(file, backup, fs.constants.COPYFILE_EXCL); } catch {}
+    console.error(`[数据警告] 无法读取 ${file}：${e.message}；原文件已尝试备份到 ${backup}`);
     return fallback;
+  }
+}
+function atomicWriteJson(file, value) {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const temp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
+  let fd = null;
+  try {
+    fd = fs.openSync(temp, 'w', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(value, null, 2), 'utf8');
+    fs.fsyncSync(fd);
+  } catch (e) {
+    try { if (fd !== null) fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(temp); } catch {}
+    throw e;
+  }
+  fs.closeSync(fd);
+  try {
+    fs.renameSync(temp, file);
+  } catch (e) {
+    try { fs.unlinkSync(temp); } catch {}
+    throw e;
   }
 }
 const config = { ...DEFAULT_CONFIG, ...loadJson(CONFIG_PATH, {}) };
@@ -114,8 +143,8 @@ for (const modelId of ['deepseek/deepseek-v4-flash', 'cline-pass/deepseek-v4-fla
   extendDeepseekFlashUpstreams(modelId);
 }
 
-const saveConfig = () => fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-const saveMeta = () => fs.writeFileSync(META_PATH, JSON.stringify(META, null, 2));
+const saveConfig = () => atomicWriteJson(CONFIG_PATH, config);
+const saveMeta = () => atomicWriteJson(META_PATH, META);
 
 // 请求历史保留最近 10 条摘要；输出详情与失败原因单独保存，不保存 messages、prompt 或工具定义原文。
 const HISTORY_MAX = 10;
@@ -153,11 +182,17 @@ function migrateHistoryStorage() {
   if (dirty) saveMeta();
 }
 migrateHistoryStorage();
-// 旧版单 apiKey 迁移为账号池
-if ((!Array.isArray(config.accounts) || config.accounts.length === 0) && config.apiKey) {
-  config.accounts = [{ name: '默认账号', key: config.apiKey, enabled: true }];
-  config.accountMode = 'single';
-  config.activeAccount = 0;
+// 旧版单 apiKey 迁移为账号池；迁移后必须清空旧字段，避免禁用账号时仍被隐藏使用。
+if (config.apiKey) {
+  const legacyKey = String(config.apiKey).trim();
+  const accounts = Array.isArray(config.accounts) ? config.accounts : [];
+  if (legacyKey && !accounts.some((a) => a?.key === legacyKey)) {
+    accounts.unshift({ name: accounts.length ? '旧版账号' : '默认账号', key: legacyKey, enabled: true });
+  }
+  config.accounts = accounts;
+  config.apiKey = '';
+  config.accountMode = config.accountMode === 'roundrobin' ? 'roundrobin' : 'single';
+  config.activeAccount = Math.min(Math.max(0, Number(config.activeAccount) || 0), Math.max(0, accounts.length - 1));
   saveConfig();
 }
 config.accountMode = config.accountMode === 'roundrobin' ? 'roundrobin' : 'single';
@@ -194,7 +229,7 @@ if (process.env.PUBLIC_BASE_URL) config.publicBaseUrl = process.env.PUBLIC_BASE_
 if (process.env.PORT) config.port = Number(process.env.PORT) || config.port;
 
 function isConfigured() {
-  return !!config.apiKey || enabledAccounts().length > 0
+  return enabledAccounts().length > 0
     || (config.commandCodeEnabled && !!config.commandCodeApiKey);
 }
 if (!isConfigured()) {
@@ -208,7 +243,7 @@ function enabledAccounts() {
 }
 function pickAccount() {
   const list = enabledAccounts();
-  if (!list.length) return { name: '默认', key: config.apiKey || '' };
+  if (!list.length) return { name: '未配置', key: '' };
   if (config.accountMode === 'roundrobin' && list.length > 1) {
     const a = list[RR_COUNTER % list.length];
     RR_COUNTER = (RR_COUNTER + 1) % 1000000000;
@@ -664,6 +699,43 @@ async function fetchOfficialModels() {
 
 // 请求历史保存可展示对话数据；认证字段始终脱敏，过长单段会标记截断。
 const HISTORY_VALUE_LIMIT = Math.max(32768, Number(process.env.HISTORY_VALUE_LIMIT) || 2 * 1024 * 1024);
+function createHistoryTextCollector(limit = HISTORY_VALUE_LIMIT) {
+  const marker = '\n…[内容过长，流式采集已截断]…\n';
+  const edge = Math.max(1, Math.floor((limit - marker.length) / 2));
+  let total = 0;
+  let head = '';
+  let tail = '';
+  let truncated = false;
+  return {
+    append(value) {
+      if (typeof value !== 'string' || !value) return;
+      total += value.length;
+      if (!truncated) {
+        const joined = head + value;
+        if (joined.length <= limit) {
+          head = joined;
+          return;
+        }
+        truncated = true;
+        head = joined.slice(0, edge);
+        tail = joined.slice(-edge);
+        return;
+      }
+      tail = (tail + value).slice(-edge);
+    },
+    value() {
+      return truncated
+        ? { truncated: true, originalLength: total, preview: head + marker + tail }
+        : head;
+    },
+  };
+}
+function appendBoundedHistoryString(current, addition) {
+  const before = typeof current === 'string' ? current : '';
+  const after = typeof addition === 'string' ? addition : String(addition ?? '');
+  if (!after || before.length >= HISTORY_VALUE_LIMIT) return before;
+  return before + after.slice(0, HISTORY_VALUE_LIMIT - before.length);
+}
 function historySafe(value, depth = 0) {
   if (depth > 16) return '[max depth]';
   if (typeof value === 'string') {
@@ -746,7 +818,7 @@ let V3_STALLED_TOTAL = 0;
 function v3RuntimeSnapshot() {
   const now = Date.now();
   return {
-    version: 'v3-mobile-1.5.1',
+    version: 'v3-mobile-1.5.2',
     startedAt: V3_STARTED_AT,
     uptimeMs: now - V3_STARTED_AT,
     streamIdleTimeoutMs: V3_STREAM_IDLE_MS,
@@ -1353,8 +1425,8 @@ async function handleChat(req, res) {
     let reader = null;
     let idleTimer = null;
     let tail = Buffer.alloc(0);
-    let streamText = '';
-    let streamReasoning = '';
+    const streamText = createHistoryTextCollector();
+    const streamReasoning = createHistoryTextCollector();
     let streamUsage = null;
     let streamFinishReason = null;
     const streamToolCalls = new Map();
@@ -1377,8 +1449,8 @@ async function handleChat(req, res) {
             const message = choice?.message || {};
             const content = delta.content ?? message.content;
             const reasoning = delta.reasoning_content ?? delta.reasoning ?? message.reasoning_content ?? message.reasoning;
-            if (typeof content === 'string') streamText += content;
-            if (typeof reasoning === 'string') streamReasoning += reasoning;
+            streamText.append(content);
+            streamReasoning.append(reasoning);
             const toolDeltas = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
             const toolMessages = Array.isArray(message.tool_calls) ? message.tool_calls : [];
             for (const call of [...toolDeltas, ...toolMessages]) {
@@ -1388,7 +1460,7 @@ async function handleChat(req, res) {
               const newArgs = call?.function?.arguments || '';
               streamToolCalls.set(key, {
                 ...previous, ...call,
-                function: { ...(previous.function || {}), ...(call.function || {}), arguments: String(oldArgs) + String(newArgs) },
+                function: { ...(previous.function || {}), ...(call.function || {}), arguments: appendBoundedHistoryString(oldArgs, newArgs) },
               });
             }
             if (choice?.finish_reason != null) streamFinishReason = choice.finish_reason;
@@ -1459,7 +1531,7 @@ async function handleChat(req, res) {
         account: acc.name, attempts: chain.trace.map((t) => t.upstream || 'auto'),
         trace: chain.trace, routeEvidence,
         exchange: historyExchange(requestHistory, {
-          stream: true, content: streamText, reasoning: streamReasoning || null,
+          stream: true, content: streamText.value(), reasoning: streamReasoning.value() || null,
           toolCalls: [...streamToolCalls.values()], usage: streamUsage, finishReason: streamFinishReason,
         }),
       }, !commandCode);
@@ -1482,7 +1554,7 @@ async function handleChat(req, res) {
           account: acc?.name || null, attempts: chain.trace.map((t) => t.upstream || 'auto'),
           trace: chain.trace, routeEvidence,
           exchange: historyExchange(requestHistory, {
-            stream: true, content: streamText, reasoning: streamReasoning || null,
+            stream: true, content: streamText.value(), reasoning: streamReasoning.value() || null,
             toolCalls: [...streamToolCalls.values()], usage: streamUsage, finishReason: streamFinishReason,
           }, { message, type: stalled ? 'stream_idle_timeout' : 'stream_error', trace: chain.trace }),
         }, !commandCode);
