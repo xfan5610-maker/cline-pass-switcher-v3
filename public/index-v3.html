@@ -423,7 +423,8 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
           <select class="field" id="providerModel"></select>
           <span class="badge provider-channel-badge" id="providerChannelBadge">尚未探测路由</span>
           <div class="provider-action-grid">
-            <button class="btn" id="providerFetchOfficialBtn">拉取最新模型</button>
+            <button class="btn" id="providerFetchOfficialBtn">拉取 Cline Pass 模型</button>
+            <button class="btn" id="providerFetchCommandCodeBtn">拉取 Command Code 模型</button>
             <button class="btn" id="providerProbeAllBtn">探测全部模型</button>
             <button class="btn" id="providerProbeBtn">探测当前路由</button>
             <button class="btn primary" id="providerRouteTestBtn">测试当前路由</button>
@@ -619,7 +620,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
           <div class="actions" style="margin-top:14px">
             <button class="btn primary" id="saveCommandCodeBtn">保存 Command Code</button>
             <button class="btn" id="showCommandCodeKeyBtn">显示 / 隐藏密钥</button>
-            <button class="btn" id="refreshCommandCodeModelsBtn">同步允许模型</button>
+            <button class="btn" id="refreshCommandCodeModelsBtn">手动拉取最新模型</button>
             <button class="btn" id="testCommandCodeBtn">测试密钥（小请求）</button>
           </div>
           <div class="card-sub" id="commandCodeModelCount" style="margin-top:14px">尚未同步模型</div>
@@ -814,7 +815,9 @@ function renderGlobalStatus(){
   const route=latest?`${shortModel(latest.model)} → ${latest.provider||'自动选择'}`:'暂无请求记录';
   sub.textContent=`${account} · ${route}`;
 }
-function modelById(id){ return DATA?.subscription?.find(x=>x.id===id); }
+function availableModels(){ return DATA?.availableModels || DATA?.subscription || []; }
+function isCommandCodeModel(id){ return String(id||'').startsWith('commandcode/'); }
+function modelById(id){ return availableModels().find(x=>x.id===id); }
 function validationEntry(modelId,u){
   return VALIDATION_RESULTS.get(modelId)?.[u] || null;
 }
@@ -845,6 +848,7 @@ function providerMatchLabel(expected,actual){
 }
 
 function renderDashboard(){
+  const models = availableModels();
   const subs = DATA?.subscription || [];
   const unique = new Set();
   subs.forEach(s => (s.meta?.upstreams||[]).forEach(u=>unique.add(u)));
@@ -856,30 +860,39 @@ function renderDashboard(){
     ['活动请求',streams.length, streams.length ? `最长空闲 ${fmtDur(maxIdle)}`:'当前无生成请求'],
     ['卡流次数',RUNTIME?.stalledTotal||0,`阈值 ${fmtDur(RUNTIME?.streamIdleTimeoutMs||0)}`],
     ['可用账号',`${activeAccounts}/${accounts.length}`,ACC?.mode==='roundrobin'?'轮询模式':'单账号模式'],
-    ['模型 / 上游',`${subs.length} / ${unique.size}`,'已收录订阅模型 / 唯一上游']
+    ['可用模型 / 上游',`${models.length} / ${unique.size}`,`Cline Pass ${subs.length} · Command Code ${Math.max(0,models.length-subs.length)}`]
   ].map(([k,v,n])=>`<div class="stat"><div class="stat-k">${esc(k)}</div><div class="stat-v">${esc(v)}</div><div class="stat-note">${esc(n)}</div></div>`).join('');
 
   const recentModel=HISTORY.find(h=>modelById(h.model))?.model;
-  if(!dashboardModelId||!modelById(dashboardModelId))dashboardModelId=recentModel||subs[0]?.id||'';
-  $('#dashModelSelect').innerHTML=subs.map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
+  if(!dashboardModelId||!modelById(dashboardModelId))dashboardModelId=recentModel||models[0]?.id||'';
+  $('#dashModelSelect').innerHTML=models.map(s=>`<option value="${esc(s.id)}">${esc(s.channel==='commandcode'?'Command Code · '+s.id.slice('commandcode/'.length):s.id)}</option>`).join('');
   $('#dashModelSelect').value=dashboardModelId;
   const selected=modelById(dashboardModelId),meta=selected?.meta||{},cfg=selected?.config||{};
-  const pipeline=meta.pipeline==='planner'?'Vercel':meta.pipeline==='openrouter'?'OpenRouter':meta.pipeline||'尚未探测';
-  const pin=meta.pinnable===true?'支持精确锚定':meta.pinnable===false?'未确认可精确锚定':'等待探测';
-  $('#dashRouteInfo').classList.toggle('hidden',!meta.pipeline&&!meta.lastProvider&&!meta.validatedAt);
-  $('#dashRouteInfo').textContent=`路由管道：${pipeline} · 最近命中：${meta.lastProvider||'—'} · ${pin}${meta.validatedAt?` · 上次校验 ${fmtDateTime(meta.validatedAt)}`:''}`;
-  const all=meta.upstreams||[],preferred=cfg.upstreams?.[0]||null;
-  const ranked=all.map(u=>({u,state:upstreamState(meta,u,dashboardModelId)}))
-    .filter(x=>x.state!=='unknown')
-    .sort((a,b)=>({ok:0,limited:1,bad:2,auth:3}[a.state]??4)-({ok:0,limited:1,bad:2,auth:3}[b.state]??4));
-  $('#dashProviderPicks').innerHTML=ranked.length?ranked.map(({u,state})=>`
-    <div class="dashboard-provider">
-      <div><div class="list-title">${esc(u)} ${u===preferred?'<span class="badge">当前首选</span>':''}</div>
-      <div class="dashboard-provider-meta">${esc(stateLabel(state))}${meta.validatedAt?` · ${esc(fmtDateTime(meta.validatedAt))}`:''}</div></div>
-      ${u===preferred
-        ? `<button class="btn small" data-dashboard-provider-default="${esc(u)}">取消首选</button>`
-        : state==='ok' ? `<button class="btn small" data-dashboard-provider="${esc(u)}">设为首选</button>` : statusPill(state)}
-    </div>`).join(''):(all.length?'<div class="empty">上游尚未校验，点击“校验全部上游”查看可用状态</div>':'<div class="empty">还没有发现上游，点击“探测路由”开始</div>');
+  const commandCode=selected?.channel==='commandcode'||isCommandCodeModel(dashboardModelId);
+  $('#dashProbeBtn').disabled=commandCode;
+  $('#dashValidateBtn').disabled=commandCode;
+  if(commandCode){
+    $('#dashRouteInfo').classList.remove('hidden');
+    $('#dashRouteInfo').textContent='Command Code 独立直通 · 不执行底层上游探测、校验或测速';
+    $('#dashProviderPicks').innerHTML='<div class="dashboard-provider"><div><div class="list-title">Command Code</div><div class="dashboard-provider-meta">模型已自动加上 commandcode/ 前缀并加入可用列表</div></div><span class="badge ok">可调用</span></div>';
+  }else{
+    const pipeline=meta.pipeline==='planner'?'Vercel':meta.pipeline==='openrouter'?'OpenRouter':meta.pipeline||'尚未探测';
+    const pin=meta.pinnable===true?'支持精确锚定':meta.pinnable===false?'未确认可精确锚定':'等待探测';
+    $('#dashRouteInfo').classList.toggle('hidden',!meta.pipeline&&!meta.lastProvider&&!meta.validatedAt);
+    $('#dashRouteInfo').textContent=`路由管道：${pipeline} · 最近命中：${meta.lastProvider||'—'} · ${pin}${meta.validatedAt?` · 上次校验 ${fmtDateTime(meta.validatedAt)}`:''}`;
+    const all=meta.upstreams||[],preferred=cfg.upstreams?.[0]||null;
+    const ranked=all.map(u=>({u,state:upstreamState(meta,u,dashboardModelId)}))
+      .filter(x=>x.state!=='unknown')
+      .sort((a,b)=>({ok:0,limited:1,bad:2,auth:3}[a.state]??4)-({ok:0,limited:1,bad:2,auth:3}[b.state]??4));
+    $('#dashProviderPicks').innerHTML=ranked.length?ranked.map(({u,state})=>`
+      <div class="dashboard-provider">
+        <div><div class="list-title">${esc(u)} ${u===preferred?'<span class="badge">当前首选</span>':''}</div>
+        <div class="dashboard-provider-meta">${esc(stateLabel(state))}${meta.validatedAt?` · ${esc(fmtDateTime(meta.validatedAt))}`:''}</div></div>
+        ${u===preferred
+          ? `<button class="btn small" data-dashboard-provider-default="${esc(u)}">取消首选</button>`
+          : state==='ok' ? `<button class="btn small" data-dashboard-provider="${esc(u)}">设为首选</button>` : statusPill(state)}
+      </div>`).join(''):(all.length?'<div class="empty">上游尚未校验，点击“校验全部上游”查看可用状态</div>':'<div class="empty">还没有发现上游，点击“探测路由”开始</div>');
+  }
 
   $('#dashRequests').innerHTML = streams.length ? streams.slice(0,6).map(s=>`
     <div class="list-item">
@@ -907,6 +920,7 @@ function renderDashboard(){
 
 async function dashboardAction(action,btn){
   const model=$('#dashModelSelect').value;if(!model)return toast('请先选择模型','warn');
+  if(isCommandCodeModel(model))return toast('Command Code 是独立直通渠道，不执行底层上游探测或校验','warn',4500);
   const old=btn.textContent;btn.disabled=true;btn.classList.add('loading');btn.textContent=action==='probe'?'探测中…':'校验中…';
   try{
     if(action==='probe')await api('/api/probe',{model});
@@ -1424,8 +1438,11 @@ async function commandCodeAction(action,btn){
     const path=action==='refresh'?'/api/commandcode/refresh-models':'/api/commandcode/test';
     const r=await api(path,{});
     if(r.commandCode)SECURITY={...SECURITY,commandCode:r.commandCode};
-    DATA=await api('/api/models');renderSettings();
-    if(action==='refresh')toast(`Command Code 已同步 ${DATA?.commandCode?.models?.length||0} 个允许模型`);
+    DATA=await api('/api/models');renderCurrent();
+    if(action==='refresh'){
+      const sync=r.commandCode?.sync||{};
+      toast(`Command Code 已拉取 ${sync.total??DATA?.commandCode?.models?.length??0} 个模型 · 新增 ${sync.added?.length||0} · 下线 ${sync.removed?.length||0}`);
+    }
     else toast(r.ok?`Command Code 可用 · ${shortModel(r.model)} · ${fmtDur(r.ms)}`:`测试失败：${r.error||'未知错误'}`,r.ok?'ok':'bad',5000);
   }catch(e){toast(errMsg(e),'bad',5000)}
   finally{btn.disabled=false;btn.textContent=old}
@@ -1497,6 +1514,7 @@ $('#dashProbeBtn').addEventListener('click',e=>dashboardAction('probe',e.current
 $('#dashValidateBtn').addEventListener('click',e=>dashboardAction('validate',e.currentTarget));
 $('#providerModel').addEventListener('change',e=>{if(speedRunning){e.target.value=providerModelId;return toast('请先停止当前测速','warn')}providerModelId=e.target.value;localStorage.setItem('cps_provider_model',providerModelId);go('providers',{model:providerModelId});renderProviders()});
 $('#providerFetchOfficialBtn').addEventListener('click',e=>fetchOfficial(e.currentTarget));
+$('#providerFetchCommandCodeBtn').addEventListener('click',e=>commandCodeAction('refresh',e.currentTarget));
 $('#providerProbeAllBtn').addEventListener('click',e=>probeAllModels(e.currentTarget));
 $('#providerSearch').addEventListener('input',()=>{$('#allProvidersDetails').open=true;renderProviders()});
 $('#routeMode').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.pinMode=e.target.value;try{await saveModelCfg(providerModelId,c);toast('路由模式已保存')}catch(err){toast(errMsg(err),'bad')}});
