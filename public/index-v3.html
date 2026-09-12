@@ -75,7 +75,7 @@ code,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
 }
 .status-strip-main{min-width:0;flex:1}
 .status-strip-title{font-size:13px;font-weight:700}
-.status-strip-sub{font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status-strip-sub{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5;overflow-wrap:anywhere}
 .quick-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
 .quick-action{
   display:flex;align-items:center;justify-content:center;gap:7px;min-height:46px;padding:9px 10px;
@@ -364,7 +364,6 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
     </header>
 
     <main class="content">
-      <section class="page" data-page="dashboard">
         <div class="status-strip" id="globalStatus" aria-live="polite">
           <span class="dot" id="globalStatusDot"></span>
           <div class="status-strip-main">
@@ -372,6 +371,8 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             <div class="status-strip-sub" id="globalStatusSub">等待运行状态</div>
           </div>
         </div>
+
+      <section class="page" data-page="dashboard">
         <div class="page-head">
           <div><h1 class="page-title">总览</h1><div class="page-desc">只保留日常最需要看的网关状态、最近请求和异常。</div></div>
         </div>
@@ -422,17 +423,26 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
         <div class="provider-command-panel">
           <select class="field" id="providerModel"></select>
           <span class="badge provider-channel-badge" id="providerChannelBadge">尚未探测路由</span>
+          <div id="activeRouteSummary" class="card-sub" aria-live="polite"></div>
           <div class="provider-action-grid">
-            <button class="btn" id="providerFetchOfficialBtn">拉取 Cline Pass 模型</button>
-            <button class="btn" id="providerProbeAllBtn">探测全部模型</button>
+            <button class="btn primary" id="providerRouteTestBtn">检查当前路由</button>
             <button class="btn" id="providerProbeBtn">探测当前路由</button>
-            <button class="btn primary" id="providerRouteTestBtn">测试当前路由</button>
-            <button class="btn provider-action-final" id="providerValidateBtn">校验全部上游</button>
           </div>
+          <div class="card-sub">检查：验证当前配置是否命中；探测：识别路由和候选上游。测速用于比较真实生成速度。</div>
+          <details class="section-details"><summary>批量操作</summary><div class="section-details-body">
+            <div class="actions">
+              <button class="btn" id="providerFetchOfficialBtn">拉取 Cline Pass 模型</button>
+              <button class="btn" id="providerProbeAllBtn">探测全部模型</button>
+              <button class="btn" id="providerValidateBtn">校验全部上游</button>
+            </div>
+            <div class="card-sub">校验：逐个检查上游可用性。批量探测和校验会发送真实请求。</div>
+          </div></details>
+          <details class="section-details"><summary>高级诊断</summary><div class="section-details-body">
           <div class="toolbar" style="margin:0">
             <input class="field" id="strictUpstreamInput" type="text" placeholder="输入上游 slug，先严格测试（不保存）">
             <button class="btn" id="strictUpstreamTestBtn">严格测试上游</button>
           </div>
+          </div></details>
         </div>
         <div id="routeTestResult" class="inline-result route-test-result hidden"></div>
         <div class="provider-layout">
@@ -508,6 +518,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
                     <option value="uptimeDay">按近一天可用率</option>
                   </select>
                 </div>
+                <div class="card-sub">测速会消耗额度，每项最多生成 1024 token。</div>
                 <div class="speed-picks" id="speedPicks"></div>
                 <div id="speedProgressWrap" class="hidden">
                   <div class="card-sub" id="speedProgressText" style="margin-top:12px">准备中…</div>
@@ -523,7 +534,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
       <section class="page" data-page="accounts">
         <div class="page-head">
           <div><h1 class="page-title">账号管理</h1><div class="page-desc">维护 Cline Pass 账号池、轮询方式和启用状态。</div></div>
-          <div class="actions"><button class="btn" id="addAccountBtn">添加账号</button><button class="btn primary" id="saveAccountsBtn">保存</button></div>
+          <div class="actions"><button class="btn" id="addAccountBtn">添加账号</button><button class="btn primary" id="saveAccountsBtn">保存</button><span id="accountsSaveState" class="muted" role="status">已保存</span></div>
         </div>
         <div class="card">
           <div class="form-row">
@@ -595,7 +606,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             <div class="form-label">模型目录<span class="form-help">开启后 /v1/models 会同时暴露完整公开目录。</span></div>
             <label class="checkline"><input type="checkbox" id="exposeCatalogInput"> 向客户端暴露完整目录</label>
           </div>
-          <div class="actions" style="margin-top:14px"><button class="btn primary" id="saveSecurityBtn">保存访问设置</button><button class="btn" id="showProxyKeyBtn">显示 / 隐藏密钥</button></div>
+          <div class="actions" style="margin-top:14px"><button class="btn primary" id="saveSecurityBtn">保存访问设置</button><span id="accessSaveState" class="muted" role="status">已保存</span><button class="btn" id="showProxyKeyBtn">显示 / 隐藏密钥</button></div>
         </div>
         <div class="card">
           <h2 class="card-title">Command Code 通道</h2>
@@ -617,7 +628,7 @@ textarea{width:100%;background:var(--panel2);border:1px solid var(--line2);borde
             <div id="commandCodeStatus" class="muted" style="padding-top:10px">尚未配置</div>
           </div>
           <div class="actions" style="margin-top:14px">
-            <button class="btn primary" id="saveCommandCodeBtn">保存 Command Code</button>
+            <button class="btn primary" id="saveCommandCodeBtn">保存 Command Code</button><span id="commandSaveState" class="muted" role="status">已保存</span>
             <button class="btn" id="showCommandCodeKeyBtn">显示 / 隐藏密钥</button>
             <button class="btn" id="refreshCommandCodeModelsBtn">手动拉取最新模型</button>
             <button class="btn" id="testCommandCodeBtn">测试密钥（小请求）</button>
@@ -708,6 +719,22 @@ async function rawApi(path, body, signal){
   if (!res.ok) throw new Error(errMsg(out));
   return out;
 }
+let runtimeError = '', accountsDraft = null;
+const settingsDraft = {access:null, command:null};
+async function fetchRuntime(){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+  try{
+    const value=await rawApi('/api/runtime',undefined,controller.signal);
+    RUNTIME=value;runtimeError='';lastRuntimeFetch=Date.now();renderHealth();return value;
+  }catch(e){runtimeError=errMsg(e);renderHealth();throw e}
+  finally{clearTimeout(timer)}
+}
+function connectionState(){
+  if(runtimeError)return {text:'连接失败',kind:'bad'};
+  if(!lastRuntimeFetch)return {text:'正在连接网关',kind:'warn'};
+  if(Date.now()-lastRuntimeFetch>30000)return {text:'运行数据已过期',kind:'warn'};
+  return null;
+}
 const api = (path, body) => rawApi(path, body);
 
 async function loadMeta(){
@@ -721,17 +748,17 @@ async function loadCore(){
     api('/api/accounts'),
     api('/api/security'),
     api('/api/history'),
-    api('/api/runtime').catch(()=>({version:'fallback',uptimeMs:0,streamIdleTimeoutMs:0,activeStreams:[],stalledTotal:0}))
+    fetchRuntime().catch(()=>RUNTIME)
   ];
   [DATA, ACC, SECURITY, HISTORY, RUNTIME] = await Promise.all(jobs);
   HISTORY = HISTORY?.history || [];
-  lastRuntimeFetch=Date.now();lastHistoryFetch=Date.now();
+  lastHistoryFetch=Date.now();
   providerModelId ||= DATA?.subscription?.[0]?.id || '';
   renderAll();
 }
 async function refreshRuntime(){
   try {
-    RUNTIME = await api('/api/runtime');
+    RUNTIME = await fetchRuntime();
     lastRuntimeFetch=Date.now();
     renderHealth();
     if (currentRoute === 'dashboard') renderDashboard();
@@ -794,6 +821,12 @@ function renderAll(){
   renderCurrent();
 }
 function renderHealth(){
+  const connection=connectionState();
+  if(connection){
+    $('#sideDot').className='dot '+connection.kind;
+    $('#sideHealth').textContent=connection.text;
+    renderGlobalStatus();return;
+  }
   if (!RUNTIME) return;
   const streams = RUNTIME.activeStreams || [];
   const near = streams.some(s => (s.idleMs||0) > (RUNTIME.streamIdleTimeoutMs||90000)*.7);
@@ -810,9 +843,11 @@ function renderGlobalStatus(){
   const enabled=(ACC?.accounts||[]).filter(a=>a.enabled!==false);
   dot.className=`dot ${near?'warn':latest?.error?'bad':''}`;
   title.textContent=near?'有请求接近卡流阈值':latest?.error?'最近一次请求失败':RUNTIME?'网关运行正常':'正在连接网关';
-  const account=enabled.length?`${enabled.length} 个账号可用`:'尚未配置账号';
+  const account=enabled.length?`${enabled.length} 个账号已启用（不代表测试通过）`:'尚未启用账号';
   const route=latest?`${shortModel(latest.model)} → ${latest.provider||'自动选择'}`:'暂无请求记录';
-  sub.textContent=`${account} · ${route}`;
+  const connection=connectionState();
+  if(connection){dot.className='dot '+connection.kind;title.textContent=connection.text;}
+  sub.textContent=`${account} · ${route} · ${lastRuntimeFetch?'最后连接成功：'+fmtDateTime(lastRuntimeFetch):'尚未获取运行数据'}`;
 }
 function routeModels(){ return DATA?.subscription || []; }
 function modelById(id){ return routeModels().find(x=>x.id===id); }
@@ -984,8 +1019,9 @@ function renderProviders(){
   localStorage.setItem('cps_provider_model',providerModelId);
   $('#providerModel').innerHTML=(DATA.subscription||[]).map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
   $('#providerModel').value=providerModelId;
-  const s=subscriptionModelById(providerModelId); if(!s) return;
+  const s=subscriptionModelById(providerModelId); if(!s){$('#activeRouteSummary').textContent='暂无 Cline Pass 模型，请先配置账号并拉取模型';return;}
   const cfg=s.config||{}, meta=s.meta||{}, all=meta.upstreams||[];
+  $('#activeRouteSummary').textContent=`当前生效：${modeLabel(cfg.pinMode)} · ${(cfg.upstreams||[]).join(' → ')||sortLabel(cfg.sort)} · 排除：${(cfg.exclude||[]).join('、')||'无'}`;
   const channel=meta.pipeline==='planner'?'Vercel':meta.pipeline==='openrouter'?'OpenRouter':meta.pipeline||'';
   const channelBadge=$('#providerChannelBadge');
   channelBadge.className=`badge provider-channel-badge ${meta.pinnable===true?'ok':meta.pinnable===false?'warn':'dim'}`;
@@ -1221,11 +1257,24 @@ async function runSingleSpeed(upstream,btn){
   }finally{btn.disabled=false;btn.textContent=old}
 }
 
+function captureAccountsDraft(){
+  if(!accountsDraft)return;
+  accountsDraft.accounts=$$('#accountList .account-card').map(card=>({
+    name:$('[data-acc-field="name"]',card).value,
+    key:$('[data-acc-field="key"]',card).value,
+    enabled:$('[data-acc-field="enabled"]',card).checked
+  }));
+  accountsDraft.mode=$('#accountMode').value;
+  accountsDraft.active=Number($('input[name="activeAccount"]:checked')?.dataset.accActive||0);
+  $('#accountsSaveState').textContent='未保存';
+}
 function renderAccounts(){
-  $('#accountMode').value=ACC?.mode||'single';
+  accountsDraft ||= structuredClone(ACC||{accounts:[],mode:'single',active:0});
+  const draft=accountsDraft;
+  $('#accountMode').value=draft.mode||'single';
   const show=$('#showAccountKeys').checked;
   const stats=ACC?.stats||{};
-  $('#accountList').innerHTML=(ACC?.accounts||[]).map((a,i)=>{
+  $('#accountList').innerHTML=(draft.accounts||[]).map((a,i)=>{
     const st=stats[a.name]||{};
     return `<div class="account-card" data-account-index="${i}">
       <div class="account-grid">
@@ -1238,29 +1287,30 @@ function renderAccounts(){
       </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">
         <label class="checkline"><input type="checkbox" data-acc-field="enabled" ${a.enabled!==false?'checked':''}> 启用</label>
-        <label class="checkline"><input type="radio" name="activeAccount" data-acc-active="${i}" ${Number(ACC.active)===i?'checked':''}> 单账号模式使用</label>
+        <label class="checkline"><input type="radio" name="activeAccount" data-acc-active="${i}" ${Number(draft.active)===i?'checked':''}> 单账号模式使用</label>
         <span class="muted" style="font-size:10px">请求 ${st.requests||0} · 最近 ${st.lastUsed?fmtDateTime(st.lastUsed):'未使用'}</span>
       </div>
     </div>`;
   }).join('')||'<div class="empty">暂无账号</div>';
 }
-function collectAccounts(){
-  return $$('#accountList .account-card').map(card=>({
-    name:$('[data-acc-field="name"]',card)?.value.trim(),
-    key:$('[data-acc-field="key"]',card)?.value.trim(),
-    enabled:$('[data-acc-field="enabled"]',card)?.checked!==false
-  })).filter(a=>a.key);
-}
 async function saveAccounts(){
-  const accounts=collectAccounts(), active=Number($('input[name="activeAccount"]:checked')?.dataset.accActive||0);
+  captureAccountsDraft();
+  const accounts=accountsDraft.accounts.map(a=>({...a,name:a.name.trim(),key:a.key.trim()})), active=accountsDraft.active;
+  if(accounts.some(a=>!a.key)){toast('请填写所有账号的 Key，或删除空账号','warn');return}
   if(!accounts.length){toast('至少保留一个有效账号','bad');return}
+  const snapshot=JSON.stringify(accountsDraft),btn=$('#saveAccountsBtn');
+  btn.disabled=true;$('#accountsSaveState').textContent='保存中…';
   try{
-    await api('/api/accounts',{accounts,mode:$('#accountMode').value,active});
-    ACC=await api('/api/accounts');renderAccounts();toast('账号配置已保存')
-  }catch(e){toast(errMsg(e),'bad')}
+    await api('/api/accounts',{accounts,mode:accountsDraft.mode,active});
+    ACC=await api('/api/accounts');
+    if(JSON.stringify(accountsDraft)===snapshot)accountsDraft=null;
+    $('#accountsSaveState').textContent=accountsDraft?'未保存':'已保存';
+    renderAccounts();toast('账号配置已保存')
+  }catch(e){$('#accountsSaveState').textContent='未保存';toast(errMsg(e),'bad')}
+  finally{btn.disabled=false}
 }
 function addAccount(){
-  ACC.accounts=ACC.accounts||[];ACC.accounts.push({name:`账号${ACC.accounts.length+1}`,key:'',enabled:true});renderAccounts()
+  captureAccountsDraft();accountsDraft.accounts.push({name:`账号${accountsDraft.accounts.length+1}`,key:'',enabled:true});renderAccounts();$('#accountsSaveState').textContent='未保存'
 }
 
 function renderRequests(){
@@ -1307,7 +1357,7 @@ function setRequestView(view,updateUrl=true){
 async function refreshRequestsNow(btn,showToast=true){
   const old=btn?.textContent;if(btn){btn.disabled=true;btn.classList.add('loading');btn.textContent='刷新中…'}
   try{
-    const [runtime,history]=await Promise.all([api('/api/runtime'),api('/api/history')]);
+    const [runtime,history]=await Promise.all([fetchRuntime(),api('/api/history')]);
     RUNTIME=runtime;HISTORY=history.history||[];requestUpdatedAt=Date.now();lastRuntimeFetch=requestUpdatedAt;lastHistoryFetch=requestUpdatedAt;
     renderHealth();renderRequests();if(showToast)toast('请求状态已刷新');
   }catch(e){if(showToast)toast(errMsg(e),'bad')}finally{if(btn){btn.disabled=false;btn.classList.remove('loading');btn.textContent=old}}
@@ -1382,6 +1432,10 @@ function renderSettingsRuntime(){
   $('#idleTimeoutInfo').textContent=RUNTIME?`${fmtDur(RUNTIME.streamIdleTimeoutMs)}（通过 STREAM_IDLE_TIMEOUT_MS 环境变量设置）`:'—';
   $('#stalledInfo').textContent=RUNTIME?`${RUNTIME.stalledTotal||0} 次`:'—';
 }
+const settingFields={access:['proxyKeyInput','publicBaseInput','exposeCatalogInput'],command:['commandCodeEnabledInput','commandCodeKeyInput','commandCodeZdrInput']};
+function readSettingsDraft(section){
+  return Object.fromEntries(settingFields[section].map(id=>{const el=$('#'+id);return [id,el.type==='checkbox'?el.checked:el.value]}));
+}
 function renderSettings(){
   $('#proxyKeyInput').value=SECURITY?.proxyKey||'';
   $('#publicBaseInput').value=SECURITY?.publicBaseUrl||'';
@@ -1398,6 +1452,11 @@ function renderSettings(){
     ? `允许模型 ${models.length} 个${(DATA?.commandCode?.modelsFetchedAt||cc.modelsFetchedAt)?' · 同步于 '+fmtDateTime(DATA?.commandCode?.modelsFetchedAt||cc.modelsFetchedAt):''}`
     : '尚未同步允许名单模型';
   $('#commandCodeModelList').innerHTML=models.map(id=>`<div class="catalog-item mono">${esc(id)}</div>`).join('')||'<div class="empty">保存密钥后点击“手动拉取最新模型”</div>';
+  for(const section of Object.keys(settingFields)){
+    if(settingsDraft[section])for(const [id,value] of Object.entries(settingsDraft[section])){
+      const el=$('#'+id);if(el.type==='checkbox')el.checked=value;else el.value=value;
+    }
+  }
   renderSettingsRuntime();renderCatalog();
 }
 function renderCatalog(){
@@ -1406,21 +1465,27 @@ function renderCatalog(){
   const rows=cat.filter(x=>!q||String(x).toLowerCase().includes(q)).slice(0,400);
   $('#catalogList').innerHTML=rows.map(x=>`<div class="catalog-item mono">${esc(x)}</div>`).join('')||'<div class="empty">没有匹配模型</div>';
 }
-async function saveSecurity(btn){
+async function saveSecurity(btn,section){
   const old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent='保存中…'}
+  $('#'+section+'SaveState').textContent='保存中…';
   try{
-    const r=await api('/api/security',{
+    const submitted=readSettingsDraft(section);
+    const r=await api('/api/security',section==='access'?{
       proxyKey:$('#proxyKeyInput').value.trim(),
       publicBaseUrl:$('#publicBaseInput').value.trim(),
       exposeCatalog:$('#exposeCatalogInput').checked,
+    }:{
       commandCodeEnabled:$('#commandCodeEnabledInput').checked,
       commandCodeApiKey:$('#commandCodeKeyInput').value.trim(),
       commandCodeZdr:$('#commandCodeZdrInput').checked,
     });
     SECURITY={...SECURITY,...r};AUTH_KEY=SECURITY.proxyKey||'';
     if(AUTH_KEY)localStorage.setItem('cps_key',AUTH_KEY);else localStorage.removeItem('cps_key');
-    DATA=await api('/api/models');renderAll();toast('设置已保存')
-  }catch(e){toast(errMsg(e),'bad')}
+    if(JSON.stringify(readSettingsDraft(section))===JSON.stringify(submitted))settingsDraft[section]=null;
+    $('#'+section+'SaveState').textContent=settingsDraft[section]?'未保存':'已保存';
+    if(DATA)DATA.proxyBase=r.proxyBase;renderAll();toast('该区设置已保存');
+    try{DATA=await api('/api/models');renderAll()}catch{toast('设置已保存，模型列表刷新失败，请稍后刷新','warn')}
+  }catch(e){$('#'+section+'SaveState').textContent='保存失败，请重试';toast(errMsg(e),'bad')}
   finally{if(btn){btn.disabled=false;btn.textContent=old}}
 }
 async function commandCodeAction(action,btn){
@@ -1480,7 +1545,7 @@ document.addEventListener('click',async e=>{
     catch(err){toast(errMsg(err),'bad')}finally{at.disabled=false;at.textContent=old}return
   }
   const ad=e.target.closest('[data-account-delete]');if(ad){
-    if(confirm('确认删除这个账号？')){ACC.accounts.splice(Number(ad.dataset.accountDelete),1);renderAccounts()}return
+    if(confirm('确认删除这个账号？')){captureAccountsDraft();const index=Number(ad.dataset.accountDelete);accountsDraft.accounts.splice(index,1);if(accountsDraft.active===index)accountsDraft.active=0;else if(accountsDraft.active>index)accountsDraft.active--;renderAccounts()}return
   }
   if(e.target.closest('.history-json'))return;
   const hr=e.target.closest('.history-row');if(hr){
@@ -1527,15 +1592,17 @@ $('#speedRunBtn').addEventListener('click',runSpeed);
 $('#speedCancelBtn').addEventListener('click',()=>speedAbort?.abort());
 $('#addAccountBtn').addEventListener('click',addAccount);
 $('#saveAccountsBtn').addEventListener('click',saveAccounts);
-$('#showAccountKeys').addEventListener('change',renderAccounts);
+$('#showAccountKeys').addEventListener('change',()=>{$$('[data-acc-field="key"]').forEach(x=>x.type=$('#showAccountKeys').checked?'text':'password')});
+$('[data-page="accounts"]').addEventListener('input',e=>{if(e.target.id!=='showAccountKeys')captureAccountsDraft()});
+$('[data-page="accounts"]').addEventListener('change',e=>{if(e.target.id!=='showAccountKeys')captureAccountsDraft()});
 $('#requestRefreshBtn').addEventListener('click',e=>refreshRequestsNow(e.currentTarget));
 $('#historyClearBtn').addEventListener('click',clearHistory);
 $('#historySearch').addEventListener('input',()=>{historyLimit=25;renderHistory()});
 $('#historyFilter').addEventListener('change',()=>{historyLimit=25;renderHistory()});
 $('#historyMoreBtn').addEventListener('click',()=>{historyLimit+=25;renderHistory()});
 $('#catalogSearch').addEventListener('input',renderCatalog);
-$('#saveSecurityBtn').addEventListener('click',e=>saveSecurity(e.currentTarget));
-$('#saveCommandCodeBtn').addEventListener('click',e=>saveSecurity(e.currentTarget));
+$('#saveSecurityBtn').addEventListener('click',e=>saveSecurity(e.currentTarget,'access'));
+$('#saveCommandCodeBtn').addEventListener('click',e=>saveSecurity(e.currentTarget,'command'));
 $('#refreshCommandCodeModelsBtn').addEventListener('click',e=>commandCodeAction('refresh',e.currentTarget));
 $('#testCommandCodeBtn').addEventListener('click',e=>commandCodeAction('test',e.currentTarget));
 $('#showCommandCodeKeyBtn').addEventListener('click',()=>{$('#commandCodeKeyInput').type=$('#commandCodeKeyInput').type==='password'?'text':'password'});
@@ -1546,20 +1613,28 @@ $('#loginBtn').addEventListener('click',async()=>{
   catch(e){$('#loginError').textContent=errMsg(e)}
 });
 $('#loginKey').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
+for(const section of Object.keys(settingFields))for(const id of settingFields[section]){
+  $('#'+id).addEventListener('input',()=>{settingsDraft[section]=readSettingsDraft(section);$('#'+section+'SaveState').textContent='未保存'});
+}
+window.addEventListener('beforeunload',e=>{
+  if(settingsDraft.access||settingsDraft.command||$('#accountsSaveState').textContent==='未保存'){e.preventDefault();e.returnValue='';}
+});
 window.addEventListener('hashchange',routeFromHash);
 
 async function autoRefresh(force=false){
-  if(document.hidden||autoRefreshBusy||!DATA)return;
+  if(document.hidden||!DATA)return;
+  renderHealth();
+  if(autoRefreshBusy)return;
   const now=Date.now(),active=(RUNTIME?.activeStreams||[]).length>0;
   const onDashboard=currentRoute==='dashboard',onRequests=currentRoute==='requests';
-  const needRuntime=force||(onDashboard&&now-lastRuntimeFetch>=5000)||(onRequests&&requestView==='live'&&now-lastRuntimeFetch>=(active?2000:10000));
+  const needRuntime=force||now-lastRuntimeFetch>=15000||(onDashboard&&now-lastRuntimeFetch>=5000)||(onRequests&&requestView==='live'&&now-lastRuntimeFetch>=(active?2000:10000));
   // 历史记录只在初次加载、手动刷新或页面重新可见时拉取，避免阅读展开内容时被重绘收起。
   const needHistory=force||(onDashboard&&now-lastHistoryFetch>=5000);
   if(!needRuntime&&!needHistory)return;
   autoRefreshBusy=true;
   try{
     const jobs=[];
-    if(needRuntime)jobs.push(api('/api/runtime').then(x=>{RUNTIME=x;lastRuntimeFetch=Date.now()}));
+    if(needRuntime)jobs.push(fetchRuntime());
     if(needHistory)jobs.push(api('/api/history').then(x=>{HISTORY=x.history||[];lastHistoryFetch=Date.now()}));
     await Promise.all(jobs);requestUpdatedAt=Date.now();renderHealth();
     if(onDashboard)renderDashboard();
