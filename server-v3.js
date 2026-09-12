@@ -746,7 +746,7 @@ let V3_STALLED_TOTAL = 0;
 function v3RuntimeSnapshot() {
   const now = Date.now();
   return {
-    version: 'v3-mobile-1.4.0',
+    version: 'v3-mobile-1.5.0',
     startedAt: V3_STARTED_AT,
     uptimeMs: now - V3_STARTED_AT,
     streamIdleTimeoutMs: V3_STREAM_IDLE_MS,
@@ -1747,6 +1747,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/probe') {
       const { model } = await JSON.parse(await readBody(req).then((b) => b.toString()));
       if (!model) return sendJSON(res, 400, { error: 'model required' });
+      if (commandCodeRawModel(model) !== null) return sendJSON(res, 400, { ok: false, error: 'Command Code 是独立中转渠道，不执行底层上游探测' });
       const r = await probeModel(model);
       return sendJSON(res, r.ok ? 200 : 502, r);
     }
@@ -1775,6 +1776,7 @@ const server = http.createServer(async (req, res) => {
       // 临时配置可带 upstreams/exclude（数组）或旧版 upstream（单值），完整走故障转移链路
       const { model, upstream, upstreams, exclude, pinMode } = await JSON.parse(await readBody(req).then((b) => b.toString()));
       if (!model) return sendJSON(res, 400, { error: 'model required' });
+      if (commandCodeRawModel(model) !== null) return sendJSON(res, 400, { ok: false, error: '请使用 Command Code 通道测试，不对其底层上游进行路由测试' });
       const t0 = Date.now();
       const cfg = { ...(config.perModel[model] || {}) };
       if (upstreams !== undefined) cfg.upstreams = upstreams;
@@ -1984,6 +1986,6 @@ server.on('error', (e) => {
 
 const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
 server.listen(config.port, BIND_HOST, () => {
-  console.log(`Cline Pass 上游控制台:  http://127.0.0.1:${config.port}/`);
+  console.log(`多渠道 AI 网关控制台:    http://127.0.0.1:${config.port}/`);
   console.log(`OpenAI 兼容代理地址:   http://127.0.0.1:${config.port}/v1`);
 });
