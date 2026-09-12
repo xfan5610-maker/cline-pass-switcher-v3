@@ -818,6 +818,7 @@ function renderGlobalStatus(){
 function availableModels(){ return DATA?.availableModels || DATA?.subscription || []; }
 function isCommandCodeModel(id){ return String(id||'').startsWith('commandcode/'); }
 function modelById(id){ return availableModels().find(x=>x.id===id); }
+function subscriptionModelById(id){ return DATA?.subscription?.find(x=>x.id===id); }
 function validationEntry(modelId,u){
   return VALIDATION_RESULTS.get(modelId)?.[u] || null;
 }
@@ -986,14 +987,14 @@ async function modelAction(action,id,btn){
 }
 
 function ensureProviderModel(){
-  if (!providerModelId || !modelById(providerModelId)) providerModelId=DATA.subscription?.[0]?.id||'';
+  if (!providerModelId || !subscriptionModelById(providerModelId)) providerModelId=DATA.subscription?.[0]?.id||'';
 }
 function renderProviders(){
   ensureProviderModel();
   localStorage.setItem('cps_provider_model',providerModelId);
   $('#providerModel').innerHTML=(DATA.subscription||[]).map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
   $('#providerModel').value=providerModelId;
-  const s=modelById(providerModelId); if(!s) return;
+  const s=subscriptionModelById(providerModelId); if(!s) return;
   const cfg=s.config||{}, meta=s.meta||{}, all=meta.upstreams||[];
   const channel=meta.pipeline==='planner'?'Vercel':meta.pipeline==='openrouter'?'OpenRouter':meta.pipeline||'';
   const channelBadge=$('#providerChannelBadge');
@@ -1082,7 +1083,7 @@ async function saveModelCfg(model,cfg){
   renderProviders();
 }
 async function setUpstreamState(u,state){
-  const s=modelById(providerModelId), cfg=structuredClone(s.config||{});
+  const s=subscriptionModelById(providerModelId), cfg=structuredClone(s.config||{});
   cfg.upstreams=cfg.upstreams||[]; cfg.exclude=cfg.exclude||[];
   cfg.upstreams=cfg.upstreams.filter(x=>x!==u); cfg.exclude=cfg.exclude.filter(x=>x!==u);
   if(state==='priority') cfg.upstreams.unshift(u);
@@ -1091,7 +1092,7 @@ async function setUpstreamState(u,state){
   catch(e){toast(errMsg(e),'bad')}
 }
 async function movePriority(u,dir){
-  const s=modelById(providerModelId), cfg=structuredClone(s.config||{}), a=cfg.upstreams||[], i=a.indexOf(u), j=dir==='up'?i-1:i+1;
+  const s=subscriptionModelById(providerModelId), cfg=structuredClone(s.config||{}), a=cfg.upstreams||[], i=a.indexOf(u), j=dir==='up'?i-1:i+1;
   if(i<0||j<0||j>=a.length)return; [a[i],a[j]]=[a[j],a[i]];
   try{await saveModelCfg(providerModelId,cfg)}catch(e){toast(errMsg(e),'bad')}
 }
@@ -1135,7 +1136,7 @@ async function testCurrentRoute(btn){
   const box=$('#routeTestResult');box.classList.remove('hidden','good','bad');
   box.textContent='正在按当前已保存路由发送测试请求…';
   try{
-    const s=modelById(providerModelId), cfg=s?.config||{}, expected=(cfg.upstreams||[])[0]||null;
+    const s=subscriptionModelById(providerModelId), cfg=s?.config||{}, expected=(cfg.upstreams||[])[0]||null;
     const r=await api('/api/test',{model:providerModelId});
     const ok=!!r.ok, matched=!expected||providerMatch(expected,r.actual);
     const pinText=expected?`首选 ${expected}`:'未指定首选上游';
@@ -1517,8 +1518,8 @@ $('#providerFetchOfficialBtn').addEventListener('click',e=>fetchOfficial(e.curre
 $('#providerFetchCommandCodeBtn').addEventListener('click',e=>commandCodeAction('refresh',e.currentTarget));
 $('#providerProbeAllBtn').addEventListener('click',e=>probeAllModels(e.currentTarget));
 $('#providerSearch').addEventListener('input',()=>{$('#allProvidersDetails').open=true;renderProviders()});
-$('#routeMode').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.pinMode=e.target.value;try{await saveModelCfg(providerModelId,c);toast('路由模式已保存')}catch(err){toast(errMsg(err),'bad')}});
-$('#routeSort').addEventListener('change',async e=>{const s=modelById(providerModelId),c=structuredClone(s.config||{});c.sort=e.target.value||null;try{await saveModelCfg(providerModelId,c);toast('排序策略已保存')}catch(err){toast(errMsg(err),'bad')}});
+$('#routeMode').addEventListener('change',async e=>{const s=subscriptionModelById(providerModelId),c=structuredClone(s.config||{});c.pinMode=e.target.value;try{await saveModelCfg(providerModelId,c);toast('路由模式已保存')}catch(err){toast(errMsg(err),'bad')}});
+$('#routeSort').addEventListener('change',async e=>{const s=subscriptionModelById(providerModelId),c=structuredClone(s.config||{});c.sort=e.target.value||null;try{await saveModelCfg(providerModelId,c);toast('排序策略已保存')}catch(err){toast(errMsg(err),'bad')}});
 $('#providerProbeBtn').addEventListener('click',async e=>{await modelAction('probe',providerModelId,e.currentTarget);DATA=await api('/api/models');renderProviders()});
 $('#providerRouteTestBtn').addEventListener('click',e=>testCurrentRoute(e.currentTarget));
 $('#strictUpstreamTestBtn').addEventListener('click',e=>testStrictUpstream(e.currentTarget));
