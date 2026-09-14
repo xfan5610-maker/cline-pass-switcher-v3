@@ -993,15 +993,19 @@ async function attemptOnce(modelId, body, attempt, signal) {
 // 流式：首包前（网关以 JSON 而非 SSE 应答错误）仍可切换；SSE 一旦开始即透传，无法重试。
 // 每次尝试有独立的超时中止（attemptTimeoutMs）；客户端断开会中止当前尝试。
 // 返回 { status, out, routing, acc, trace, streamUp? } —— trace 为逐次尝试 [{ upstream, status, ms, note }]
-async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTimeoutMs = 120000 } = {}) {
+async function runChatChain(req, res, body, modelId, cfg, { stream = false, attemptTimeoutMs = 120000 } = {}) {
   const attempts = buildAttempts(modelId, cfg);
   const trace = [];
   const t0 = Date.now();
   let last = null;
   let activeCtrl = null;            // 当前尝试的 AbortController；流式成功后保持指向该次 fetch，用于断连时中止上游 body
   let keepCloseHook = false;        // 流式 SSE 建立后，close 钩子要保留到流结束
-  const onClientClose = () => { if (activeCtrl) activeCtrl.abort(); };
-  req.on('close', onClientClose);
+  // req 的 close 在请求体收完时就会触发，不能用它判断客户端是否仍在接收响应。
+  // 监听 response 的 close，并只在响应尚未正常结束时中止上游。
+  const onClientClose = () => {
+    if (!res.writableEnded && activeCtrl) activeCtrl.abort();
+  };
+  res.on('close', onClientClose);
   try {
     for (const attempt of attempts) {
       const t1 = Date.now();
@@ -1084,7 +1088,7 @@ async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTi
             t0,
             headers: visibleResponseHeaders(up.headers),
             streamAbort: () => ctrl.abort(),
-            streamCleanup: () => req.off('close', onClientClose),
+            streamCleanup: () => res.off('close', onClientClose),
           };
         }
         // 非流式
@@ -1101,7 +1105,7 @@ async function runChatChain(req, body, modelId, cfg, { stream = false, attemptTi
       }
     }
   } finally {
-    if (!keepCloseHook) req.off('close', onClientClose);
+    if (!keepCloseHook) res.off('close', onClientClose);
   }
   return { ...last, status: last?.status ?? 502, trace, t0, netError: last?.netError || null };
 }
@@ -1300,7 +1304,7 @@ function commandCodeError(json, status) {
     type: status === 401 ? 'authentication_error' : status === 429 ? 'rate_limit_error' : status >= 500 ? 'server_error' : 'invalid_request_error',
   } };
 }
-async function runCommandCode(req, body, publicModel, options = {}) {
+async function runCommandCode(req, res, body, publicModel, options = {}) {
   const stream = !!options.stream;
   const t0 = Date.now();
   const rawModel = commandCodeRawModel(publicModel);
@@ -1316,8 +1320,10 @@ async function runCommandCode(req, body, publicModel, options = {}) {
     : { ...body, model: rawModel, stream };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 180000);
-  const onClose = () => ctrl.abort();
-  req.on('close', onClose);
+  const onClose = () => {
+    if (!res.writableEnded) ctrl.abort();
+  };
+  res.on('close', onClose);
   let handedOff = false;
   try {
     const up = await fetch(config.commandCodeBase + (anthropic ? '/messages' : '/chat/completions'), {
@@ -1331,7 +1337,7 @@ async function runCommandCode(req, body, publicModel, options = {}) {
         ...base, status: 200, streamUp: up, streamHead: null,
         headers: {}, trace: [{ upstream: 'commandcode', status: 200, ms, note: 'stream' }],
         streamAbort: () => ctrl.abort(),
-        streamCleanup: () => { clearTimeout(timer); req.off('close', onClose); },
+        streamCleanup: () => { clearTimeout(timer); res.off('close', onClose); },
       };
     }
     const text = await up.text();
@@ -1353,7 +1359,7 @@ async function runCommandCode(req, body, publicModel, options = {}) {
   } finally {
     if (!handedOff) {
       clearTimeout(timer);
-      req.off('close', onClose);
+      res.off('close', onClose);
     }
   }
 }
@@ -1394,8 +1400,8 @@ async function handleChat(req, res) {
   const isStream = !!body.stream;
 
   const chain = commandCode
-    ? await runCommandCode(req, body, modelId, { stream: isStream })
-    : await runChatChain(req, body, modelId, cfg, { stream: isStream });
+    ? await runCommandCode(req, res, body, modelId, { stream: isStream })
+    : await runChatChain(req, res, body, modelId, cfg, { stream: isStream });
 
   if (isStream && chain.streamUp) {
     // V3：显式泵送 WebStream，增加空闲超时、背压、有限尾部缓存与完整清理。
@@ -1470,12 +1476,22 @@ async function handleChat(req, res) {
     };
     let finished = false;
     let recorded = false;
+    let rejectPendingDrain = null;
 
-    state.abort = () => {
+    // res.write() 发生背压时，单等 drain 会在客户端不再读取数据时永久挂起。
+    // 取消、连接关闭或响应错误都必须唤醒这个等待，才能让 finally 清理活动请求。
+    const wakePendingDrain = (message) => {
+      const reject = rejectPendingDrain;
+      rejectPendingDrain = null;
+      if (reject) reject(new Error(message));
+    };
+
+    state.abort = (reason = 'aborted by admin') => {
       if (finished) return false;
-      state.state = 'ABORTING';
+      if (state.state !== 'STALLED') state.state = 'ABORTING';
+      wakePendingDrain(reason);
       try { chain.streamAbort?.(); } catch {}
-      try { reader?.cancel('aborted by admin')?.catch?.(() => {}); } catch {}
+      try { reader?.cancel(reason)?.catch?.(() => {}); } catch {}
       return true;
     };
 
@@ -1485,10 +1501,31 @@ async function handleChat(req, res) {
         if (finished) return;
         state.state = 'STALLED';
         V3_STALLED_TOTAL++;
-        try { chain.streamAbort?.(); } catch {}
-        try { reader?.cancel('stream idle timeout'); } catch {}
+        state.abort('stream idle timeout');
       }, V3_STREAM_IDLE_MS);
     };
+
+    const waitForDrain = () => new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        res.off('drain', onDrain);
+        res.off('close', onClose);
+        res.off('error', onError);
+        if (rejectPendingDrain === fail) rejectPendingDrain = null;
+        fn(value);
+      };
+      const onDrain = () => finish(resolve);
+      const onClose = () => finish(reject, new Error('client response closed'));
+      const onError = (err) => finish(reject, err || new Error('client response error'));
+      const fail = (err) => finish(reject, err);
+      rejectPendingDrain = fail;
+      res.once('drain', onDrain);
+      res.once('close', onClose);
+      res.once('error', onError);
+      if (res.destroyed || res.writableEnded) onClose();
+    });
 
     const pushChunk = async (chunk) => {
       if (!chunk || !chunk.length) return;
@@ -1498,9 +1535,7 @@ async function handleChat(req, res) {
       tail = v3TailAppend(tail, chunk);
       captureSSE(chunk);
       armIdle();
-      if (!res.write(chunk)) {
-        await new Promise((resolve) => res.once('drain', resolve));
-      }
+      if (!res.write(chunk)) await waitForDrain();
     };
 
     try {
