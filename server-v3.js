@@ -1902,7 +1902,7 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 400, { ok: false, error: '上游名称格式无效' });
       }
       const body = { model, messages: [{ role: 'user', content: 'Reply with the word OK' }], max_tokens: 256 };
-      const chain = await runChatChain(req, body, model, cfg, { stream: false, attemptTimeoutMs: 180000 });
+      const chain = await runChatChain(req, res, body, model, cfg, { stream: false, attemptTimeoutMs: 180000 });
       const trace = chain.trace || [];
       if (chain.status !== 200) {
         const providers = errorProviders(chain.out?.error);
